@@ -1,7 +1,4 @@
 // app/admin/patients/page.jsx
-// This page lists all patients in a shadcn <Table>.
-// For now it uses placeholder data; we will swap this for a real Supabase query later.
-
 import Link from 'next/link';
 import {
   Table,
@@ -13,49 +10,17 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
+import { createClient } from "@/utils/supabase/server";
 
-// ─── Placeholder patient data ─────────────────────────────────────────────────
-// Each object represents one row we would normally fetch from the database.
-const PLACEHOLDER_PATIENTS = [
-  {
-    id: '1',
-    name: 'Maria Santos',
-    age: 28,
-    lmp: '2024-09-10',
-    aog: '20 weeks',
-    status: 'Active',
-  },
-  {
-    id: '2',
-    name: 'Ana Reyes',
-    age: 31,
-    lmp: '2024-10-01',
-    aog: '16 weeks',
-    status: 'Active',
-  },
-  {
-    id: '3',
-    name: 'Joy Dela Cruz',
-    age: 24,
-    lmp: '2024-06-15',
-    aog: '36 weeks',
-    status: 'For Delivery',
-  },
-  {
-    id: '4',
-    name: 'Lorna Garcia',
-    age: 35,
-    lmp: '2024-08-20',
-    aog: '24 weeks',
-    status: 'High Risk',
-  },
-];
+export default async function PatientsPage() {
+  const supabase = await createClient();
+  const { data: patients } = await supabase
+    .from('patients')
+    .select('*')
+    .order('created_at', { ascending: false });
 
-// ─── Page component ───────────────────────────────────────────────────────────
-export default function PatientsPage() {
   return (
     <div>
-      {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold text-gray-800">Patients</h2>
@@ -63,45 +28,35 @@ export default function PatientsPage() {
             Manage prenatal records and visit history.
           </p>
         </div>
-        {/* TODO: wire up to an "Add Patient" modal/form */}
         <Button className="bg-emerald-600 hover:bg-emerald-700 text-white">
           + Add Patient
         </Button>
       </div>
 
-      {/* Patients table */}
-      <div className="bg-white rounded-lg border border-gray-200 shadow-sm">
+      <div className="bg-white rounded-lg border border-gray-200 shadow-sm overflow-hidden">
         <Table>
-          <TableCaption className="pb-4">
-            Showing {PLACEHOLDER_PATIENTS.length} registered patients.
+          <TableCaption className="text-gray-400 pb-4">
+            Showing {patients?.length || 0} registered patients.
           </TableCaption>
-          <TableHeader>
+          <TableHeader className="bg-gray-50">
             <TableRow>
-              <TableHead>Patient Name</TableHead>
-              <TableHead>Age</TableHead>
-              <TableHead>Last Menstrual Period</TableHead>
-              <TableHead>Age of Gestation</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
+              <TableHead className="font-semibold">Patient Name</TableHead>
+              <TableHead className="font-semibold">Age</TableHead>
+              <TableHead className="font-semibold">Contact Number</TableHead>
+              <TableHead className="font-semibold">Registered</TableHead>
+              <TableHead className="text-right font-semibold">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {PLACEHOLDER_PATIENTS.map((patient) => (
+            {patients?.map((patient) => (
               <TableRow key={patient.id}>
-                <TableCell className="font-medium">{patient.name}</TableCell>
-                <TableCell>{patient.age}</TableCell>
-                <TableCell>{patient.lmp}</TableCell>
-                <TableCell>{patient.aog}</TableCell>
-
-                {/* Status badge — colour changes based on status text */}
-                <TableCell>
-                  <StatusBadge status={patient.status} />
-                </TableCell>
-
+                <TableCell className="font-medium text-gray-900">{patient.full_name || 'Patient'}</TableCell>
+                <TableCell className="text-gray-600">{patient.age || 'N/A'}</TableCell>
+                <TableCell className="text-gray-600">{patient.contact_number || 'N/A'}</TableCell>
+                <TableCell className="text-gray-600">{new Date(patient.created_at).toLocaleDateString()}</TableCell>
                 <TableCell className="text-right">
-                  {/* Link to the individual patient detail page */}
                   <Link href={`/admin/patients/${patient.id}`}>
-                    <Button variant="outline" size="sm">
+                    <Button variant="outline" size="sm" className="hover:bg-rose-50 hover:text-rose-600 hover:border-rose-200 border-gray-200 text-gray-600 transition-colors">
                       View Record
                     </Button>
                   </Link>
@@ -112,24 +67,5 @@ export default function PatientsPage() {
         </Table>
       </div>
     </div>
-  );
-}
-
-// ─── Helper component: status colour badge ────────────────────────────────────
-// Renders a small pill whose colour reflects the patient's current status.
-function StatusBadge({ status }) {
-  // Map each status string to Tailwind colour classes
-  const colours = {
-    'Active':       'bg-emerald-100 text-emerald-700',
-    'For Delivery': 'bg-blue-100   text-blue-700',
-    'High Risk':    'bg-red-100    text-red-700',
-  };
-
-  const colourClass = colours[status] ?? 'bg-gray-100 text-gray-600';
-
-  return (
-    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${colourClass}`}>
-      {status}
-    </span>
   );
 }

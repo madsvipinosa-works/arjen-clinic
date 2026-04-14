@@ -143,7 +143,224 @@ export async function updateAppointmentStatus(formData) {
     console.error('[updateAppointmentStatus] error:', error.message);
   }
 
-  // Refresh the admin dashboard so the new status reflects immediately
+  // Refresh both the dashboard and the dedicated appointments list
   revalidatePath('/admin');
+  revalidatePath('/admin/appointments');
 }
 
+/**
+ * addVisitLog(formData)
+ * Extracts patient_id, bp, weight, and doctor_notes. Inserts into visit_logs.
+ */
+export async function addVisitLog(formData) {
+  const supabaseServer = await createClient();
+  
+  const patient_id = formData.get('patient_id');
+  const bp = formData.get('bp');
+  const weight = formData.get('weight');
+  const doctor_notes = formData.get('doctor_notes');
+
+  // Hardcode visit_date for the MVP since instructions only listed these 4 extraction fields
+  // In a real app we might get the date string from an input.
+  const visit_date = new Date().toISOString().split('T')[0];
+
+  if (!patient_id) return;
+
+  const { error } = await supabaseServer
+    .from('visit_logs')
+    .insert({ patient_id, bp, weight, doctor_notes, visit_date });
+
+  if (error) {
+    console.error('[addVisitLog] error:', error.message);
+  }
+
+  // Refresh dynamic route
+  revalidatePath('/admin/patients/[id]', 'page');
+}
+
+/**
+ * updateBirthPlan(formData)
+ * Extracts patient_id, delivery_location, and birth_attendant. Upserts into birth_plans.
+ */
+export async function updateBirthPlan(formData) {
+  const supabaseServer = await createClient();
+  
+  const patient_id = formData.get('patient_id');
+  const delivery_location = formData.get('delivery_location');
+  const birth_attendant = formData.get('birth_attendant');
+
+  if (!patient_id) return;
+
+  // Uses upsert. It targets patient_id.
+  const { error } = await supabaseServer
+    .from('birth_plans')
+    .upsert({ patient_id, delivery_location, birth_attendant }, { onConflict: 'patient_id' });
+
+  if (error) {
+    console.error('[updateBirthPlan] error:', error.message);
+  }
+
+  revalidatePath('/admin/patients/[id]', 'page');
+}
+
+/**
+ * updatePrenatal(formData)
+ * Extracts patient_id, health_history, and lab_results. Upserts into prenatal_records.
+ */
+export async function updatePrenatal(formData) {
+  const supabaseServer = await createClient();
+  
+  const patient_id = formData.get('patient_id');
+  // Form input values return strings. Parsing them to JSON depending on form setup.
+  // For the MVP, we can assume text/string.
+  const health_history = formData.get('health_history');
+  const lab_results = formData.get('lab_results');
+
+  if (!patient_id) return;
+
+  const { error } = await supabaseServer
+    .from('prenatal_records')
+    .upsert({ 
+      patient_id, 
+      health_history: { details: health_history }, 
+      lab_results: { details: lab_results } 
+    }, { onConflict: 'patient_id' });
+
+  if (error) {
+    console.error('[updatePrenatal] error:', error.message);
+  }
+
+  revalidatePath('/admin/patients/[id]', 'page');
+}
+
+/**
+ * updateSettings(formData)
+ * Overrides the default capacity bounds for daily bookings
+ */
+export async function updateSettings(formData) {
+  const supabaseServer = await createClient();
+  const max_morning_slots = parseInt(formData.get('max_morning_slots') || 10, 10);
+  const max_afternoon_slots = parseInt(formData.get('max_afternoon_slots') || 10, 10);
+
+  await supabaseServer.from('clinic_settings').upsert({
+    id: 1,
+    max_morning_slots,
+    max_afternoon_slots
+  });
+
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * addBlockedDate(formData)
+ * Locks a specific date from being selected publicly
+ */
+export async function addBlockedDate(formData) {
+  const supabaseServer = await createClient();
+  const blocked_date = formData.get('blocked_date');
+  const reason = formData.get('reason');
+
+  if (blocked_date) {
+    await supabaseServer.from('blocked_dates').insert({ blocked_date, reason });
+  }
+
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * removeBlockedDate(formData)
+ * Restores public access to a previously blocked date
+ */
+export async function removeBlockedDate(formData) {
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+  if (id) {
+    await supabaseServer.from('blocked_dates').delete().eq('id', id);
+  }
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * addTimeSlot(formData)
+ * Adds a new configurable clinic time slot
+ */
+export async function addTimeSlot(formData) {
+  const supabaseServer = await createClient();
+  const start_time = formData.get('start_time'); // e.g. "07:30"
+  const end_time   = formData.get('end_time');   // e.g. "08:30"
+  const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
+
+  if (!start_time || !end_time) return;
+
+  // Format 24h time → "7:30 AM" style label automatically
+  const formatTime = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const hour = h % 12 || 12;
+    return `${hour}:${m.toString().padStart(2, '0')} ${period}`;
+  };
+  const label = `${formatTime(start_time)} - ${formatTime(end_time)}`;
+
+  const { data: maxOrder } = await supabaseServer
+    .from('time_slots').select('sort_order').order('sort_order', { ascending: false }).limit(1).single();
+  const sort_order = (maxOrder?.sort_order || 0) + 1;
+
+  await supabaseServer.from('time_slots').insert({ label, max_capacity, sort_order });
+
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * deleteTimeSlot(formData)
+ * Permanently removes a time slot 
+ */
+export async function deleteTimeSlot(formData) {
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+  if (id) {
+    await supabaseServer.from('time_slots').delete().eq('id', id);
+  }
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * updateTimeSlotCapacity(formData)
+ * Updates the max patient capacity on a specific time slot
+ */
+export async function updateTimeSlotCapacity(formData) {
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+  const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
+  if (id) {
+    await supabaseServer.from('time_slots').update({ max_capacity }).eq('id', id);
+  }
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * toggleSaturdayBlock(formData)
+ */
+export async function toggleSaturdayBlock(formData) {
+  const supabaseServer = await createClient();
+  const block_saturday = formData.get('block_saturday') === 'true';
+  await supabaseServer.from('clinic_settings').update({ block_saturday }).eq('id', 1);
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * toggleSundayBlock(formData)
+ */
+export async function toggleSundayBlock(formData) {
+  const supabaseServer = await createClient();
+  const block_sunday = formData.get('block_sunday') === 'true';
+  await supabaseServer.from('clinic_settings').update({ block_sunday }).eq('id', 1);
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}

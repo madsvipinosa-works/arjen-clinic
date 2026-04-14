@@ -96,6 +96,8 @@ export async function createAppointment(formData) {
 
   const service_type = formData.get("service_type");
   const appointment_date = formData.get("appointment_date");
+  const time = formData.get("time");
+  const notes = formData.get("notes");
 
   if (!service_type || !appointment_date) {
     redirect("/book?error=Service type and appointment date are required");
@@ -111,11 +113,13 @@ export async function createAppointment(formData) {
     redirect(`/book?error=${encodeURIComponent(profileError.message)}`);
   }
 
-  // Save the appointment
+  // Save the appointment with augmented payloads
   const { error } = await supabase.from('appointments').insert({ 
     patient_id: user.id, 
     service_type, 
-    appointment_date 
+    appointment_date,
+    time_preference: time,
+    notes: notes
   });
 
   if (error) {
