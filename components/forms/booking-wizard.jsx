@@ -43,7 +43,8 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
   const [formData, setFormData] = useState({
     service_type: "",
     appointment_date: "",
-    time: "",          // stores the time slot label
+    time: "",           // stores the time slot LABEL (sent to server)
+    selectedSlotId: "", // tracks the selected slot by unique ID
     notes: "",
   });
 
@@ -52,10 +53,22 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
   const updateField = (field, value) => {
     setFormData((prev) => {
       const next = { ...prev, [field]: value };
-      // Reset time if date changes to force re-evaluation
-      if (field === "appointment_date") next.time = "";
+      // Reset time selection if date changes
+      if (field === "appointment_date") {
+        next.time = "";
+        next.selectedSlotId = "";
+      }
       return next;
     });
+  };
+
+  // Select a time slot by its unique ID and store the label for the server
+  const selectSlot = (slot) => {
+    setFormData((prev) => ({
+      ...prev,
+      selectedSlotId: slot.id,
+      time: slot.label,
+    }));
   };
 
   // ── Date validation helpers ──────────────────────────────────
@@ -85,10 +98,10 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
     timeSlots.length > 0 && timeSlots.every((s) => getSlotStatus(s).full);
 
   const step2Valid = () => {
-    if (!selectedDate || !formData.time) return false;
+    if (!selectedDate || !formData.selectedSlotId) return false;
     if (dateUnavailable || allSlotsFull) return false;
-    // The chosen time must not be full
-    const chosen = timeSlots.find((s) => s.label === formData.time);
+    // The chosen slot must not be full
+    const chosen = timeSlots.find((s) => s.id === formData.selectedSlotId);
     if (chosen && getSlotStatus(chosen).full) return false;
     return true;
   };
@@ -133,6 +146,11 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
         ))}
       </div>
 
+      {/* ── Always-present hidden fields ──────────────────────── */}
+      <input type="hidden" name="service_type" value={formData.service_type} />
+      <input type="hidden" name="appointment_date" value={formData.appointment_date} />
+      <input type="hidden" name="time" value={formData.time} />
+
       <div className="p-8 md:p-12 min-h-[380px]">
         {/* ── STEP 1: SERVICE ──────────────────────────── */}
         {step === 1 && (
@@ -142,7 +160,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
               <p className="text-gray-500 mt-2">Select the medical service or consultation you require.</p>
             </div>
 
-            <input type="hidden" name="service_type" value={formData.service_type} />
+
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {[
@@ -182,7 +200,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
             {/* Date Picker */}
             <div className="max-w-xs mx-auto space-y-2">
               <Label htmlFor="date_picker" className="text-gray-700 font-semibold">Preferred Date</Label>
-              <input type="hidden" name="appointment_date" value={formData.appointment_date} />
+
               <Input
                 type="date"
                 id="date_picker"
@@ -215,7 +233,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
             {/* Time Slot Cards */}
             {selectedDate && !dateUnavailable && (
               <div>
-                <input type="hidden" name="time" value={formData.time} />
+
 
                 {timeSlots.length === 0 ? (
                   <p className="text-center text-gray-400 text-sm py-6">
@@ -229,13 +247,13 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                     <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                       {timeSlots.map((slot) => {
                         const { full, count } = getSlotStatus(slot);
-                        const isSelected = formData.time === slot.label;
+                        const isSelected = formData.selectedSlotId === slot.id;
                         return (
                           <button
                             key={slot.id}
                             type="button"
                             disabled={full}
-                            onClick={() => !full && updateField("time", slot.label)}
+                            onClick={() => !full && selectSlot(slot)}
                             className={`relative flex flex-col items-center justify-center p-4 rounded-2xl border-2 transition-all duration-200 text-center ${
                               full
                                 ? "border-gray-100 bg-gray-50 text-gray-400 cursor-not-allowed opacity-60"

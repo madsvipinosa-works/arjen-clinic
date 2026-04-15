@@ -1,137 +1,151 @@
 // app/admin/page.jsx
-// The main dashboard landing page shown at /admin
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Button } from '@/components/ui/button';
 import { createClient } from "@/utils/supabase/server";
 import { updateAppointmentStatus } from "../actions";
+import Link from "next/link";
+import {
+  Users, CalendarDays, Clock, CheckCircle2, ArrowRight, Activity,
+} from "lucide-react";
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient();
 
-  // 1. Fetch total patients
-  const { count: patientsCount } = await supabase
-    .from('patients')
-    .select('*', { count: 'exact', head: true });
+  // Stat queries
+  const [
+    { count: patientsCount },
+    { count: appointmentsCount },
+    { data: recentAppts },
+    { data: statusRows },
+  ] = await Promise.all([
+    supabase.from("patients").select("*", { count: "exact", head: true }),
+    supabase.from("appointments").select("*", { count: "exact", head: true }),
+    supabase
+      .from("appointments")
+      .select("id, service_type, appointment_date, time_preference, status, patients(full_name)")
+      .order("created_at", { ascending: false })
+      .limit(6),
+    supabase.from("appointments").select("status"),
+  ]);
 
-  // 2. Fetch total appointments
-  const { count: appointmentsCount } = await supabase
-    .from('appointments')
-    .select('*', { count: 'exact', head: true });
+  const statusCounts = { Pending: 0, Approved: 0, Completed: 0, Rejected: 0 };
+  statusRows?.forEach((a) => { if (statusCounts[a.status] !== undefined) statusCounts[a.status]++; });
 
-  // 3. Fetch all appointments including the patient's name
-  const { data: appointments } = await supabase
-    .from('appointments')
-    .select('*, patients(full_name)')
-    .order('appointment_date', { ascending: false });
+  const SERVICE_LABELS = {
+    prenatal: "Prenatal",
+    delivery: "Delivery",
+    family:   "Family Planning",
+    general:  "General Consult",
+  };
 
-  // Compute some quick stats from the loaded data
-  const pendingCount = appointments?.filter(a => a.status === 'Pending').length || 0;
+  const statusBadge = {
+    Pending:   "bg-amber-50 text-amber-700 border border-amber-200",
+    Approved:  "bg-emerald-50 text-emerald-700 border border-emerald-200",
+    Completed: "bg-blue-50 text-blue-700 border border-blue-200",
+    Rejected:  "bg-red-50 text-red-700 border border-red-200",
+  };
 
   return (
-    <div>
-      <h2 className="text-2xl font-bold text-gray-800 mb-1">Dashboard</h2>
-      <p className="text-sm text-gray-500 mb-6">
-        Welcome back! Here is a live overview of the clinic.
-      </p>
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
-      {/* Real-time Stat cards */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-4 mb-8">
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm text-gray-500 font-normal">Total Patients</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-emerald-600">{patientsCount || 0}</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm text-gray-500 font-normal">Total Appointments</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-blue-600">{appointmentsCount || 0}</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm text-gray-500 font-normal">Pending Approvals</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-3xl font-bold text-amber-500">{pendingCount}</p>
-          </CardContent>
-        </Card>
-        
-        <Card>
-          <CardHeader className="pb-1">
-            <CardTitle className="text-sm text-gray-500 font-normal">System Status</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-xl font-bold text-rose-500 mt-2">Live</p>
-          </CardContent>
-        </Card>
+      {/* ── Header ─────────────────────────────────── */}
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Dashboard</h1>
+        <p className="text-gray-500 mt-1">Welcome back! Here's a live overview of the clinic.</p>
       </div>
 
-      {/* Recent Appointments Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent Appointments</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Patient Name</TableHead>
-                <TableHead>Service</TableHead>
-                <TableHead>Date</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {appointments && appointments.length > 0 ? (
-                appointments.map((apt) => (
-                  <TableRow key={apt.id}>
-                    <TableCell className="font-medium text-gray-900">
-                      {apt.patients?.full_name || 'Unknown Patient'}
-                    </TableCell>
-                    <TableCell className="capitalize">{apt.service_type.replace('_', ' ')}</TableCell>
-                    <TableCell>{new Date(apt.appointment_date).toLocaleDateString()}</TableCell>
-                    <TableCell>
-                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                        apt.status === 'Pending' ? 'bg-amber-100 text-amber-700' :
-                        apt.status === 'Approved' ? 'bg-emerald-100 text-emerald-700' :
-                        'bg-gray-100 text-gray-700'
-                      }`}>
-                        {apt.status}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      {apt.status === 'Pending' && (
-                        <form action={updateAppointmentStatus}>
-                          <input type="hidden" name="appointment_id" value={apt.id} />
-                          <input type="hidden" name="status" value="Approved" />
-                          <Button type="submit" size="sm" className="bg-emerald-500 hover:bg-emerald-600 text-white h-8">
-                            Approve
-                          </Button>
-                        </form>
-                      )}
-                    </TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-center h-24 text-gray-500">
-                    No appointments found.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      {/* ── Stat Cards ─────────────────────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {[
+          { label: "Total Patients",     value: patientsCount || 0,        icon: Users,         color: "text-violet-600",  bg: "bg-violet-50",  href: "/admin/patients" },
+          { label: "Total Appointments", value: appointmentsCount || 0,    icon: CalendarDays,  color: "text-blue-600",    bg: "bg-blue-50",    href: "/admin/appointments" },
+          { label: "Pending Approvals",  value: statusCounts.Pending,      icon: Clock,         color: "text-amber-600",   bg: "bg-amber-50",   href: "/admin/appointments?status=Pending" },
+          { label: "Completed Today",    value: statusCounts.Completed,    icon: CheckCircle2,  color: "text-emerald-600", bg: "bg-emerald-50", href: "/admin/appointments?status=Completed" },
+        ].map(({ label, value, icon: Icon, color, bg, href }) => (
+          <Link
+            key={label}
+            href={href}
+            className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md p-5 transition-all group"
+          >
+            <div className="flex items-start justify-between mb-4">
+              <div className={`w-10 h-10 rounded-xl ${bg} flex items-center justify-center`}>
+                <Icon className={`w-5 h-5 ${color}`} />
+              </div>
+              <ArrowRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 group-hover:translate-x-0.5 transition-all" />
+            </div>
+            <p className={`text-3xl font-bold ${color}`}>{value}</p>
+            <p className="text-sm text-gray-500 font-medium mt-1">{label}</p>
+          </Link>
+        ))}
+      </div>
+
+      {/* ── Status breakdown strip ──────────────────── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {["Pending", "Approved", "Completed", "Rejected"].map((s) => (
+          <Link
+            key={s}
+            href={`/admin/appointments?status=${s}`}
+            className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between hover:border-rose-200 transition-all group"
+          >
+            <span className="text-sm text-gray-500 font-medium">{s}</span>
+            <span className={`text-sm font-bold px-2.5 py-1 rounded-lg border ${statusBadge[s]}`}>
+              {statusCounts[s]}
+            </span>
+          </Link>
+        ))}
+      </div>
+
+      {/* ── Recent Appointments ─────────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-rose-500 flex items-center justify-center shadow-sm">
+              <Activity className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="font-bold text-gray-900">Recent Appointments</h2>
+              <p className="text-xs text-gray-400">Latest 6 requests</p>
+            </div>
+          </div>
+          <Link
+            href="/admin/appointments"
+            className="flex items-center gap-1.5 text-sm text-rose-600 font-semibold hover:underline"
+          >
+            View all <ArrowRight className="w-4 h-4" />
+          </Link>
+        </div>
+
+        <div className="divide-y divide-gray-50">
+          {!recentAppts?.length ? (
+            <div className="py-16 text-center text-gray-400 text-sm">No appointments yet.</div>
+          ) : (
+            recentAppts.map((appt) => {
+              const name = appt.patients?.full_name || "Unknown";
+              const badge = statusBadge[appt.status] || statusBadge.Pending;
+              return (
+                <div
+                  key={appt.id}
+                  className="flex items-center justify-between px-6 py-4 hover:bg-gray-50/60 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center text-white font-bold text-xs shadow-sm flex-shrink-0">
+                      {name.split(" ").map((n) => n[0]).join("").slice(0, 2).toUpperCase()}
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{name}</p>
+                      <p className="text-xs text-gray-400">
+                        {SERVICE_LABELS[appt.service_type] || appt.service_type} · {appt.appointment_date}
+                        {appt.time_preference && ` · ${appt.time_preference}`}
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded-lg ${badge}`}>
+                    {appt.status}
+                  </span>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
     </div>
   );
 }

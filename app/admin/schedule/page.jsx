@@ -2,13 +2,14 @@ import { createClient } from "@/utils/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CalendarX2, Clock, Plus, Trash2 } from "lucide-react";
-import { AutoSaveCapacity } from "@/components/forms/auto-save-capacity";
+import { CalendarX2, Clock, Plus } from "lucide-react";
+import { TimeSlotList } from "@/components/forms/time-slot-list";
 import {
   addBlockedDate,
   removeBlockedDate,
   addTimeSlot,
   deleteTimeSlot,
+  updateTimeSlot,
   toggleSaturdayBlock,
   toggleSundayBlock,
 } from "../../actions";
@@ -24,7 +25,7 @@ export default async function ScheduleSettingsPage() {
 
   const { data: timeSlots } = await supabase
     .from("time_slots")
-    .select("*")
+    .select("id, label, max_capacity, start_time, end_time")
     .order("sort_order", { ascending: true });
 
   const { data: blockedDates } = await supabase
@@ -96,42 +97,12 @@ export default async function ScheduleSettingsPage() {
             </div>
           </form>
 
-          {/* Slot List */}
-          <div className="divide-y divide-gray-100">
-            {timeSlots?.length === 0 && (
-              <p className="text-center text-gray-400 py-10 text-sm italic">No time slots defined yet.</p>
-            )}
-            {timeSlots?.map((slot) => (
-              <div key={slot.id} className="flex items-center justify-between px-5 py-3.5 gap-4 hover:bg-gray-50/60 group">
-                {/* Slot label */}
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <div className="w-2 h-2 rounded-full bg-rose-400 flex-shrink-0" />
-                  <span className="font-semibold text-gray-800 text-sm truncate">{slot.label}</span>
-                </div>
-
-                {/* Auto-save capacity — no button needed */}
-                <div className="flex items-center gap-2 text-xs text-gray-400 flex-shrink-0">
-                  <span>Max:</span>
-                  <AutoSaveCapacity slotId={slot.id} defaultValue={slot.max_capacity} />
-                  <span>patients</span>
-                </div>
-
-                {/* Delete */}
-                <form action={deleteTimeSlot}>
-                  <input type="hidden" name="id" value={slot.id} />
-                  <Button
-                    type="submit"
-                    variant="ghost"
-                    size="sm"
-                    className="text-gray-300 hover:text-red-500 hover:bg-red-50 h-8 w-8 p-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                    title="Delete slot"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </form>
-              </div>
-            ))}
-          </div>
+          {/* Slot List — client component handles edit state */}
+          <TimeSlotList
+            timeSlots={timeSlots || []}
+            deleteTimeSlot={deleteTimeSlot}
+            updateTimeSlot={updateTimeSlot}
+          />
         </div>
 
         {/* ─── Weekend + Blocked Dates ──────────────────────────── */}

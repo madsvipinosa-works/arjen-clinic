@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from "@/utils/supabase/server";
-import { addVisitLog, updateBirthPlan, updatePrenatal } from "../../../actions";
+import { addVisitLog, updateBirthPlan, updatePrenatal, sendConsultationMessage } from "../../../actions";
+import { MessageSquare, Send } from "lucide-react";
 
 export default async function PatientDetailPage({ params }) {
   // Await the Next.js 15+ dynamic params object securely
@@ -19,12 +20,16 @@ export default async function PatientDetailPage({ params }) {
     { data: patient },
     { data: birthPlan },
     { data: prenatalRecord },
-    { data: visitLogs }
+    { data: visitLogs },
+    { data: consultationMessages },
+    { data: { user: staffUser } }
   ] = await Promise.all([
     supabase.from('patients').select('*').eq('id', id).single(),
     supabase.from('birth_plans').select('*').eq('patient_id', id).single(),
     supabase.from('prenatal_records').select('*').eq('patient_id', id).single(),
-    supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false })
+    supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
+    supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
+    supabase.auth.getUser()
   ]);
 
   // Handle Edge Case where UUID might be malformed or missing
@@ -58,6 +63,7 @@ export default async function PatientDetailPage({ params }) {
           <TabsTrigger value="visitlogs" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Visit Logs</TabsTrigger>
           <TabsTrigger value="prenatal" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Prenatal Record</TabsTrigger>
           <TabsTrigger value="birthplan" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Birth Plan</TabsTrigger>
+          <TabsTrigger value="consultation" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Consultation</TabsTrigger>
         </TabsList>
 
         {/* ─── TAB 1: Visit Logs ────────────────────────────── */}
@@ -212,6 +218,64 @@ export default async function PatientDetailPage({ params }) {
                   <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-full px-8">Save Birth Plan</Button>
                 </div>
               </form>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+      <TabsContent value="consultation">
+          <Card className="border-none shadow-md">
+            <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
+              <CardTitle>Online Consultation Thread</CardTitle>
+              <CardDescription>Direct communication history with {patient.full_name}.</CardDescription>
+            </CardHeader>
+            <CardContent className="p-0">
+              <div className="flex flex-col h-[500px]">
+                {/* Messages List */}
+                <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/30">
+                  {consultationMessages?.length > 0 ? consultationMessages.map((msg) => {
+                    const isStaff = msg.sender_role === 'staff';
+                    return (
+                      <div key={msg.id} className={`flex ${isStaff ? 'justify-end' : 'justify-start'}`}>
+                        <div className={`max-w-[80%] px-4 py-2.5 rounded-2xl text-sm ${
+                          isStaff 
+                            ? 'bg-rose-500 text-white rounded-br-none' 
+                            : 'bg-white border border-gray-200 text-gray-800 rounded-bl-none shadow-sm'
+                        }`}>
+                          <p className="font-medium leading-relaxed">{msg.content}</p>
+                          <p className={`text-[10px] mt-1 ${isStaff ? 'text-rose-100' : 'text-gray-400'}`}>
+                            {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  }) : (
+                    <div className="h-full flex flex-col items-center justify-center text-gray-400 space-y-2">
+                      <MessageSquare className="w-10 h-10 opacity-20" />
+                      <p>No messages exchanged yet.</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Staff Reply Form */}
+                <div className="p-4 border-t bg-white rounded-b-xl">
+                  <form action={sendConsultationMessage} className="flex gap-2">
+                    <input type="hidden" name="patient_id" value={id} />
+                    <input type="hidden" name="sender_id" value={staffUser?.id} />
+                    <input type="hidden" name="sender_role" value="staff" />
+                    
+                    <Input 
+                      name="content" 
+                      placeholder="Type a reply..." 
+                      className="flex-1 focus-visible:ring-rose-500 bg-gray-50" 
+                      required 
+                    />
+                    <Button type="submit" className="bg-rose-500 hover:bg-rose-600 text-white gap-2 px-6">
+                      <Send className="w-4 h-4" />
+                      Reply
+                    </Button>
+                  </form>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>

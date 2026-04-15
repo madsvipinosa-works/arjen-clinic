@@ -285,7 +285,7 @@ export async function removeBlockedDate(formData) {
 
 /**
  * addTimeSlot(formData)
- * Adds a new configurable clinic time slot
+ * Adds a new configurable clinic time slot with overlap and duplicate detection.
  */
 export async function addTimeSlot(formData) {
   const supabaseServer = await createClient();
@@ -294,6 +294,12 @@ export async function addTimeSlot(formData) {
   const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
 
   if (!start_time || !end_time) return;
+
+  // Validate: end must be after start
+  if (end_time <= start_time) {
+    revalidatePath('/admin/schedule', 'page');
+    return;
+  }
 
   // Format 24h time → "7:30 AM" style label automatically
   const formatTime = (t) => {
@@ -304,11 +310,76 @@ export async function addTimeSlot(formData) {
   };
   const label = `${formatTime(start_time)} - ${formatTime(end_time)}`;
 
+  // ── Overlap guard ─────────────────────────────────────────────────────────
+  // Reject if new range overlaps any existing slot: new.start < existing.end AND new.end > existing.start
+  const { data: existing } = await supabaseServer
+    .from('time_slots')
+    .select('id, label, start_time, end_time')
+    .not('start_time', 'is', null)
+    .not('end_time', 'is', null);
+
+  const hasOverlap = existing?.some(
+    (s) => start_time < s.end_time && end_time > s.start_time
+  );
+
+  if (hasOverlap) {
+    // Overlapping slot — skip silently. UI stays unchanged.
+    revalidatePath('/admin/schedule', 'page');
+    return;
+  }
+
   const { data: maxOrder } = await supabaseServer
     .from('time_slots').select('sort_order').order('sort_order', { ascending: false }).limit(1).single();
   const sort_order = (maxOrder?.sort_order || 0) + 1;
 
-  await supabaseServer.from('time_slots').insert({ label, max_capacity, sort_order });
+  await supabaseServer.from('time_slots').insert({ label, start_time, end_time, max_capacity, sort_order });
+
+  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/book', 'page');
+}
+
+/**
+ * updateTimeSlot(formData)
+ * Edits an existing time slot's time range and capacity, with overlap detection.
+ */
+export async function updateTimeSlot(formData) {
+  const supabaseServer = await createClient();
+  const id           = formData.get('id');
+  const start_time   = formData.get('start_time');
+  const end_time     = formData.get('end_time');
+  const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
+
+  if (!id || !start_time || !end_time) return;
+
+  // Validate: end must be after start
+  if (end_time <= start_time) return;
+
+  const formatTime = (t) => {
+    const [h, m] = t.split(':').map(Number);
+    const period = h >= 12 ? 'PM' : 'AM';
+    const hour = h % 12 || 12;
+    return `${hour}:${m.toString().padStart(2, '0')} ${period}`;
+  };
+  const label = `${formatTime(start_time)} - ${formatTime(end_time)}`;
+
+  // ── Overlap guard (exclude self) ──────────────────────────────────────────
+  const { data: others } = await supabaseServer
+    .from('time_slots')
+    .select('id, start_time, end_time')
+    .neq('id', id)
+    .not('start_time', 'is', null)
+    .not('end_time', 'is', null);
+
+  const hasOverlap = others?.some(
+    (s) => start_time < s.end_time && end_time > s.start_time
+  );
+
+  if (hasOverlap) return;
+
+  await supabaseServer
+    .from('time_slots')
+    .update({ label, start_time, end_time, max_capacity })
+    .eq('id', id);
 
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
@@ -363,4 +434,65 @@ export async function toggleSundayBlock(formData) {
   await supabaseServer.from('clinic_settings').update({ block_sunday }).eq('id', 1);
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
+}
+/**
+ * cancelAppointment(formData)
+ * Allows patients to withdraw their own pending appointment requests.
+ */
+export async function cancelAppointment(formData) {
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+  
+  if (!id) return { success: false, error: "Missing ID" };
+
+  const { error } = await supabaseServer
+    .from('appointments')
+    .update({ status: 'Cancelled' })
+    .eq('id', id);
+
+  if (error) {
+    console.error('[cancelAppointment] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath('/patient');
+  revalidatePath('/patient/appointments');
+  return { success: true };
+}
+
+/**
+ * sendConsultationMessage(formData)
+ * Saves a message from either a patient or a staff member to the consultation thread.
+ */
+export async function sendConsultationMessage(formData) {
+  const supabaseServer = await createClient();
+  
+  const patient_id = formData.get('patient_id');
+  const sender_id  = formData.get('sender_id');
+  const sender_role = formData.get('sender_role'); // 'patient' or 'staff'
+  const content    = formData.get('content');
+
+  if (!patient_id || !sender_id || !content) {
+    return { success: false, error: "Missing required fields" };
+  }
+
+  const { error } = await supabaseServer
+    .from('consultation_messages')
+    .insert({
+      patient_id,
+      sender_id,
+      sender_role,
+      content
+    });
+
+  if (error) {
+    console.error('[sendConsultationMessage] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // Revalidate both sides
+  revalidatePath(`/patient/consultation`);
+  revalidatePath(`/admin/patients/${patient_id}`);
+  
+  return { success: true };
 }
