@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { login } from "../actions";
+import { FacebookButton } from "@/components/auth/facebook-button";
 
 export default async function LoginPage({ searchParams }) {
   const params = await searchParams; // Wait for search params (Next 15+ standard)
@@ -55,7 +56,20 @@ export default async function LoginPage({ searchParams }) {
           </Button>
         </CardContent>
       </form>
+
+      <div className="px-6 pb-2">
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-gray-200" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-gray-500 font-medium">Or continue with</span>
+          </div>
+        </div>
+        <FacebookButton />
+      </div>
       
+
       <CardFooter className="flex flex-col border-t p-6 mt-4">
         <div className="text-center text-sm text-gray-500">
           Don't have an account?{" "}

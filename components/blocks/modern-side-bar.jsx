@@ -16,7 +16,8 @@ import {
   CalendarDays,
   ClipboardList,
   Search,
-  LayoutTemplate
+  LayoutTemplate,
+  Activity
 } from "lucide-react";
 
 // The unified navigational array map
@@ -25,17 +26,7 @@ const navigationItems = [
   { id: "appointments", name: "Appointments",      icon: ClipboardList,  href: "/admin/appointments" },
   { id: "schedule",     name: "Clinic Schedule",  icon: CalendarDays,   href: "/admin/schedule" },
   { id: "patients",     name: "Patients",         icon: User,           href: "/admin/patients" },
-  { 
-    id: "cms", 
-    name: "Website CMS",   
-    icon: LayoutTemplate, 
-    subItems: [
-      { id: "cms-hero",     name: "Hero Section", href: "/admin/cms/hero" },
-      { id: "cms-services", name: "Services",     href: "/admin/cms/services" },
-      { id: "cms-about",    name: "About Us",     href: "/admin/cms/about" },
-    ]
-  },
-  { id: "settings",  name: "Settings",        icon: Settings,       href: "/admin/settings" },
+  { id: "settings",     name: "System Settings",  icon: Settings,       href: "/admin/settings" },
 ];
 
 export function Sidebar({ className = "", children }) {
@@ -257,14 +248,17 @@ export function Sidebar({ className = "", children }) {
         {/* Bottom section with profile and logout */}
         <div className="mt-auto border-t border-rose-100 bg-gray-50/50 pt-2 pb-4">
           <div className="p-3">
-             <Link
-                href="/login" // Logout hook conceptually linked via frontend integration externally
+             <button
+                onClick={() => {
+                  localStorage.removeItem('adminSession');
+                  window.location.href = '/admin/login';
+                }}
                 className={`w-full flex items-center rounded-xl transition-all duration-200 group text-gray-500 hover:bg-red-50 hover:text-red-600 ${isCollapsed ? "justify-center px-1 py-3" : "space-x-3 px-3 py-3"}`}
                 title={isCollapsed ? "Logout" : undefined}
               >
                 <LogOut className="h-5 w-5 flex-shrink-0 text-gray-400 group-hover:text-red-500 transition-colors" />
                 {!isCollapsed && <span className="text-sm font-medium tracking-wide">Secure Logout</span>}
-             </Link>
+             </button>
           </div>
         </div>
       </aside>

@@ -5,8 +5,28 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { createClient } from "@/utils/supabase/server";
-import { addVisitLog, updateBirthPlan, updatePrenatal, sendConsultationMessage } from "../../../actions";
-import { MessageSquare, Send } from "lucide-react";
+import { 
+  addVisitLog, 
+  updateBirthPlan, 
+  updatePrenatal, 
+  sendConsultationMessage,
+  uploadAttachment,
+  deleteAttachment,
+  updateModularData
+} from "../../../actions";
+import { 
+  MessageSquare, 
+  Send,
+  Plus,
+  Trash2,
+  FileUp,
+  FileIcon,
+  ImageIcon,
+  ExternalLink,
+  ClipboardList,
+  AlertCircle
+} from "lucide-react";
+import { ModularRecordEditor } from "@/components/admin/modular-record-editor";
 
 export default async function PatientDetailPage({ params }) {
   // Await the Next.js 15+ dynamic params object securely
@@ -22,6 +42,7 @@ export default async function PatientDetailPage({ params }) {
     { data: prenatalRecord },
     { data: visitLogs },
     { data: consultationMessages },
+    { data: attachments },
     { data: { user: staffUser } }
   ] = await Promise.all([
     supabase.from('patients').select('*').eq('id', id).single(),
@@ -29,6 +50,7 @@ export default async function PatientDetailPage({ params }) {
     supabase.from('prenatal_records').select('*').eq('patient_id', id).single(),
     supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
     supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
+    supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
     supabase.auth.getUser()
   ]);
 
@@ -58,16 +80,17 @@ export default async function PatientDetailPage({ params }) {
         </div>
       </div>
 
-      <Tabs defaultValue="visitlogs" className="w-full">
-        <TabsList className="mb-6 bg-white border shadow-sm">
-          <TabsTrigger value="visitlogs" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Visit Logs</TabsTrigger>
-          <TabsTrigger value="prenatal" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Prenatal Record</TabsTrigger>
-          <TabsTrigger value="birthplan" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Birth Plan</TabsTrigger>
-          <TabsTrigger value="consultation" className="data-[state=active]:bg-rose-500 data-[state=active]:text-white">Consultation</TabsTrigger>
+      <Tabs defaultValue="clinical" className="w-full">
+        <TabsList className="bg-white p-1 rounded-xl border border-gray-100 shadow-sm mb-6 flex flex-wrap h-auto">
+          <TabsTrigger value="clinical" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-rose-500 data-[state=active]:text-white transition-all font-bold text-sm">Clinical Observations</TabsTrigger>
+          <TabsTrigger value="prenatal" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-rose-500 data-[state=active]:text-white transition-all font-bold text-sm">Modular Records</TabsTrigger>
+          <TabsTrigger value="birthplan" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-rose-500 data-[state=active]:text-white transition-all font-bold text-sm">Birth Plan</TabsTrigger>
+          <TabsTrigger value="files" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-rose-500 data-[state=active]:text-white transition-all font-bold text-sm">Files & Labs</TabsTrigger>
+          <TabsTrigger value="consultation" className="rounded-lg px-6 py-2.5 data-[state=active]:bg-rose-500 data-[state=active]:text-white transition-all font-bold text-sm">Consultation</TabsTrigger>
         </TabsList>
 
-        {/* ─── TAB 1: Visit Logs ────────────────────────────── */}
-        <TabsContent value="visitlogs">
+        {/* ─── TAB 1: Clinical Observations ────────────────── */}
+        <TabsContent value="clinical">
           <Card className="border-none shadow-md">
             <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
               <CardTitle>Clinical Visit Logs</CardTitle>
@@ -136,93 +159,226 @@ export default async function PatientDetailPage({ params }) {
           </Card>
         </TabsContent>
 
-        {/* ─── TAB 2: Prenatal Record ───────────────────────── */}
+        {/* ─── TAB 2: Modular Records ────────────────────── */}
         <TabsContent value="prenatal">
-          <Card className="border-none shadow-md">
-            <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
-              <CardTitle>Prenatal Record</CardTitle>
-              <CardDescription>Maintain persistent health history and evolving laboratory insights.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              <form action={updatePrenatal} className="space-y-8">
-                <input type="hidden" name="patient_id" value={id} />
-                
-                <div className="space-y-3">
-                  <Label htmlFor="health_history" className="text-base text-gray-800">Health & Medical History</Label>
-                  <p className="text-xs text-gray-500">Record past surgeries, chronic illnesses, or family conditions relevant to the pregnancy.</p>
-                  <textarea 
-                    id="health_history" 
-                    name="health_history" 
-                    defaultValue={healthDetails} 
-                    className="flex min-h-[140px] w-full rounded-md border border-input bg-transparent px-4 py-3 text-sm shadow-sm focus-visible:outline-none focus:ring-1 focus:ring-rose-500 leading-relaxed" 
-                    placeholder="Patient states she has a history of mild asthma..."
-                  />
-                </div>
-                
-                <div className="space-y-3">
-                  <Label htmlFor="lab_results" className="text-base text-gray-800">Laboratory Results Summaries</Label>
-                   <p className="text-xs text-gray-500">Log ultrasound findings, bloodwork panels, and urinalysis.</p>
-                  <textarea 
-                    id="lab_results" 
-                    name="lab_results" 
-                    defaultValue={labDetails} 
-                    className="flex min-h-[140px] w-full rounded-md border border-input bg-transparent px-4 py-3 text-sm shadow-sm focus-visible:outline-none focus:ring-1 focus:ring-rose-500 leading-relaxed" 
-                    placeholder="Latest CBC shows normal hemoglobin levels..."
-                  />
-                </div>
-                
-                <div className="flex justify-end pt-2 border-t border-gray-100">
-                  <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-full px-8">Save Record</Button>
-                </div>
-              </form>
-            </CardContent>
-          </Card>
+          <ModularRecordEditor 
+            patientId={id} 
+            initialModularData={prenatalRecord?.modular_data} 
+            updateModularData={updateModularData} 
+          />
         </TabsContent>
 
         {/* ─── TAB 3: Birth Plan ────────────────────────────── */}
         <TabsContent value="birthplan">
           <Card className="border-none shadow-md">
             <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
-              <CardTitle>Birth Plan Directives</CardTitle>
-              <CardDescription>Document and respect the patient's delivery logistics and companion preferences.</CardDescription>
+              <CardTitle>Comprehensive Birth Plan</CardTitle>
+              <CardDescription>Document patient preferences, emergency contacts, and delivery logistics.</CardDescription>
             </CardHeader>
-            <CardContent className="p-6">
-              <form action={updateBirthPlan} className="space-y-6 max-w-xl">
+            <CardContent className="p-8">
+              <form action={updateBirthPlan} className="space-y-10 max-w-4xl mx-auto">
                 <input type="hidden" name="patient_id" value={id} />
                 
-                <div className="space-y-2">
-                  <Label htmlFor="delivery_location" className="text-gray-700 font-semibold">Primary Delivery Location</Label>
-                  <p className="text-xs text-gray-500 italic mb-2">Saan plano manganak ang pasyente?</p>
-                  <Input 
-                    id="delivery_location" 
-                    name="delivery_location" 
-                    defaultValue={birthPlan?.delivery_location || ''} 
-                    placeholder="e.g. AR-JEN Clinic Delivery Room 1" 
-                    className="focus-visible:ring-rose-500" 
-                  />
+                {/* Section 1: Logistics (Tagalog) */}
+                <div className="grid md:grid-cols-2 gap-8">
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-black text-gray-900 border-l-4 border-rose-500 pl-3">Logistics & Delivery</h3>
+                    
+                    <div className="space-y-2">
+                      <Label className="text-sm font-bold text-gray-700">Ako ay manganganak sa (I will give birth at):</Label>
+                      <select name="delivery_location" defaultValue={birthPlan?.delivery_location} className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 focus:ring-2 focus:ring-rose-500/20 outline-none font-medium">
+                        <option value="Lying-in Clinic">Lying-in Clinic</option>
+                        <option value="Bahay (Home)">Bahay (Home)</option>
+                        <option value="Ospital (Hospital)">Ospital (Hospital)</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-bold text-gray-700">Ang magpapaanak sa akin ay (Attendant):</Label>
+                      <Input name="birth_attendant" defaultValue={birthPlan?.birth_attendant} placeholder="e.g. Doctor, Midwife, Hilot" className="h-11 rounded-xl" />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label className="text-sm font-bold text-gray-700">Sasakyang gagamitin (Vehicle):</Label>
+                      <Input name="transportation" defaultValue={birthPlan?.transportation} placeholder="e.g. Ambulansya, Jeep, Tricycle" className="h-11 rounded-xl" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-4">
+                    <h3 className="text-lg font-black text-gray-900 border-l-4 border-rose-500 pl-3">Companions & PhilHealth</h3>
+                    
+                    <div className="space-y-2">
+                      <Label className="text-sm font-bold text-gray-700">Kasama sa lugar ng panganganak (Companion):</Label>
+                      <Input name="companion_name" defaultValue={birthPlan?.companion_name} placeholder="e.g. Asawa, Kapamilya" className="h-11 rounded-xl" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 pt-2">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-bold text-gray-700 text-xs">PhilHealth Member?</Label>
+                        <select name="is_philhealth_member" defaultValue={birthPlan?.is_philhealth_member} className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 focus:ring-2 focus:ring-rose-500/20 outline-none">
+                          <option value="OO (Yes)">OO (Yes)</option>
+                          <option value="HINDI (No)">HINDI (No)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-sm font-bold text-gray-700 text-xs">Mode of Payment</Label>
+                        <select name="payment_method" defaultValue={birthPlan?.payment_method} className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 focus:ring-2 focus:ring-rose-500/20 outline-none">
+                          <option value="Cash">Cash</option>
+                          <option value="PhilHealth">PhilHealth</option>
+                          <option value="Insurance">Medical Insurance</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="birth_attendant" className="text-gray-700 font-semibold">Designated Birth Companion / Attendant</Label>
-                  <p className="text-xs text-gray-500 italic mb-2">Sino ang isasama sa loob ng delivery room?</p>
-                  <Input 
-                    id="birth_attendant" 
-                    name="birth_attendant" 
-                    defaultValue={birthPlan?.birth_attendant || ''} 
-                    placeholder="e.g. Husband (Juan Santos)" 
-                    className="focus-visible:ring-rose-500" 
-                  />
+
+                {/* Section 2: Emergencies */}
+                <div className="bg-rose-50/50 rounded-3xl p-6 border border-rose-100 space-y-6">
+                  <h3 className="text-lg font-black text-rose-800 flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5" />
+                    Emergency Contact & Backup Plan
+                  </h3>
+                  
+                  <div className="grid md:grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                      <Label className="text-xs font-black text-rose-400 uppercase tracking-widest block mb-2">Primary Emergency Contact</Label>
+                      <Input name="emergency_name" defaultValue={birthPlan?.emergency_name} placeholder="Contact Name" className="h-11 rounded-xl border-rose-200" />
+                      <Input name="emergency_contact" defaultValue={birthPlan?.emergency_contact} placeholder="Contact Number" className="h-11 rounded-xl border-rose-200" />
+                    </div>
+
+                    <div className="space-y-4">
+                      <Label className="text-xs font-black text-rose-400 uppercase tracking-widest block mb-2">Hospital Referral (Backup)</Label>
+                      <select name="backup_hospital_type" defaultValue={birthPlan?.backup_hospital_type} className="w-full h-11 rounded-xl border border-rose-200 bg-white px-3 focus:ring-2 focus:ring-rose-500/20 outline-none">
+                        <option value="Government Hospital">Government Hospital</option>
+                        <option value="Private Hospital">Private Hospital</option>
+                      </select>
+                      <Input name="blood_donor_contact" defaultValue={birthPlan?.blood_donor_contact} placeholder="Potential Blood Donor Name/Contact" className="h-11 rounded-xl border-rose-200" />
+                    </div>
+                  </div>
                 </div>
-                
-                <div className="pt-6 border-t border-gray-100">
-                  <Button type="submit" className="bg-emerald-600 hover:bg-emerald-700 text-white rounded-full px-8">Save Birth Plan</Button>
+
+                <div className="flex justify-end pt-6 border-t border-gray-100">
+                  <Button type="submit" className="bg-rose-500 hover:bg-rose-600 text-white rounded-2xl h-14 px-10 font-black text-lg shadow-lg shadow-rose-100 transition-all active:scale-95">
+                    Save Complete Birth Plan
+                  </Button>
                 </div>
               </form>
             </CardContent>
           </Card>
         </TabsContent>
 
-      <TabsContent value="consultation">
+        {/* ─── TAB 4: Files & Lab Results ───────────────────── */}
+        <TabsContent value="files">
+          <Card className="border-none shadow-md">
+            <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl flex flex-row items-center justify-between">
+              <div>
+                <CardTitle>Files & Lab Results</CardTitle>
+                <CardDescription>Manage ultrasound images, PDF lab results, and other medical documents.</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="p-6">
+              {/* Upload Form */}
+              <div className="bg-rose-50/50 border border-rose-100 rounded-2xl p-6 mb-8">
+                <h3 className="font-bold text-gray-900 mb-4 flex items-center gap-2">
+                  <FileUp className="w-5 h-5 text-rose-500" />
+                  Upload New Document
+                </h3>
+                <form action={uploadAttachment} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <input type="hidden" name="patient_id" value={id} />
+                  
+                  <div className="md:col-span-1">
+                    <Label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Category</Label>
+                    <select 
+                      name="category" 
+                      className="w-full h-11 rounded-xl border border-gray-200 bg-white px-3 text-sm focus:ring-2 focus:ring-rose-500/20 outline-none"
+                    >
+                      <option value="Lab Result">Lab Result</option>
+                      <option value="Ultrasound">Ultrasound</option>
+                      <option value="Prescription">Prescription</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+
+                  <div className="md:col-span-1">
+                    <Label className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2 block">Select File</Label>
+                    <Input 
+                      type="file" 
+                      name="file" 
+                      required 
+                      className="h-11 border-dashed border-2 border-rose-200 bg-white file:bg-rose-50 file:text-rose-600 file:border-none file:h-full file:px-4 file:mr-4 file:font-bold text-xs"
+                    />
+                  </div>
+
+                  <div className="flex items-end">
+                    <Button type="submit" className="w-full bg-rose-500 hover:bg-rose-600 text-white rounded-xl h-11 font-bold gap-2">
+                      <Plus className="w-4 h-4" />
+                      Upload File
+                    </Button>
+                  </div>
+                </form>
+              </div>
+
+              {/* Files Grid */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {attachments?.length > 0 ? attachments.map((file) => {
+                  const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(file.file_type?.toLowerCase());
+                  return (
+                    <div key={file.id} className="group relative bg-white border border-gray-100 rounded-2xl p-4 hover:shadow-lg transition-all">
+                      <div className="flex items-start gap-3">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${isImage ? 'bg-blue-50 text-blue-500' : 'bg-rose-50 text-rose-500'}`}>
+                          {isImage ? <ImageIcon className="w-6 h-6" /> : <FileIcon className="w-6 h-6" />}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-900 text-sm truncate pr-6" title={file.file_name}>
+                            {file.file_name}
+                          </p>
+                          <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-0.5">
+                            {file.category} • {file.file_type?.toUpperCase()}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between mt-4 pt-4 border-t border-gray-50">
+                        <span className="text-[10px] font-bold text-gray-300">
+                          {new Date(file.created_at).toLocaleDateString()}
+                        </span>
+                        <div className="flex gap-2">
+                          <a 
+                            href={file.file_url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="p-2 bg-gray-50 text-gray-400 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                          </a>
+                          <form action={deleteAttachment}>
+                            <input type="hidden" name="id" value={file.id} />
+                            <input type="hidden" name="file_url" value={file.file_url} />
+                            <input type="hidden" name="patient_id" value={id} />
+                            <Button 
+                              type="submit" 
+                              variant="ghost" 
+                              className="p-2 h-auto text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </form>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }) : (
+                  <div className="col-span-full py-20 text-center">
+                    <FileIcon className="w-16 h-16 text-gray-100 mx-auto mb-4" />
+                    <p className="text-gray-400 font-medium">No documents uploaded for this patient yet.</p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="consultation">
           <Card className="border-none shadow-md">
             <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
               <CardTitle>Online Consultation Thread</CardTitle>

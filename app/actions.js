@@ -5,9 +5,34 @@
 
 'use server'; // This directive tells Next.js: everything in this file is server-only.
 
-import supabase from '@/utils/supabase';
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTHENTICATION HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function verifyAdmin() {
+  const supabaseServer = await createClient();
+  const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
+  if (authError || !user) return false;
+  
+  const { data: userData } = await supabaseServer
+    .from("users")
+    .select("role")
+    .eq("id", user.id)
+    .single();
+
+  return userData && (userData.role === 'admin' || userData.role === 'staff');
+}
+
+async function verifyAuth() {
+  const supabaseServer = await createClient();
+  const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
+  return !authError && !!user;
+}
+
 
 /**
  * createVisitLog(formData)
@@ -15,102 +40,74 @@ import { revalidatePath } from "next/cache";
  * PURPOSE : Save a new prenatal visit log entry to the Supabase database.
  * CALLED  : From a <form action={createVisitLog}> in any React Server Component,
  *           or via startTransition / useFormState on the client.
- *
- * HOW IT WORKS:
- *   1. formData is a native FormData object — the same kind browsers send on form submit.
- *   2. We use formData.get('field_name') to read each input value by its HTML `name`.
- *   3. We build a plain JS object with the extracted values.
- *   4. We send that object to Supabase with .insert().
- *   5. We return a simple result object { success, error } so the UI can respond.
- *
- * @param {FormData} formData - Automatically provided by Next.js from the HTML form.
- * @returns {{ success: boolean, error: string|null }}
  */
 export async function createVisitLog(formData) {
-  // ── Step 1: Extract values from the form ─────────────────────────────────
-  // formData.get() reads the value of an <input name="..."> field.
-  const patientId  = formData.get('patient_id');   // hidden input in the form
-  const visitDate  = formData.get('visit_date');    // <input type="date">
-  const bloodPressure = formData.get('blood_pressure'); // e.g. "120/80"
-  const weight     = formData.get('weight');        // e.g. "58 kg"
-  const notes      = formData.get('notes');         // textarea
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  
+  const patientId  = formData.get('patient_id');  
+  const visitDate  = formData.get('visit_date');  
+  const bloodPressure = formData.get('blood_pressure'); 
+  const weight     = formData.get('weight');       
+  const notes      = formData.get('notes');        
 
-  // ── Step 2: Simple validation ────────────────────────────────────────────
-  // Make sure required fields are not empty before writing to the database.
   if (!patientId || !visitDate) {
     return { success: false, error: 'Patient ID and visit date are required.' };
   }
 
-  // ── Step 3: Build the data object to insert ──────────────────────────────
-  // This object's keys must match the column names in your Supabase 'visit_logs' table.
   const newLog = {
     patient_id:     patientId,
     visit_date:     visitDate,
     blood_pressure: bloodPressure,
     weight:         weight,
     notes:          notes,
-    created_at:     new Date().toISOString(), // record when this was saved
+    created_at:     new Date().toISOString(), 
   };
 
-  // ── Step 4: Insert into Supabase ─────────────────────────────────────────
-  // supabase.from('visit_logs') → target the 'visit_logs' table
-  // .insert(newLog)             → add the new row
-  // We destructure the response into { data, error }
-  const { data, error } = await supabase
+  const supabaseServer = await createClient();
+  const { data, error } = await supabaseServer
     .from('visit_logs')
     .insert(newLog);
 
-  // ── Step 5: Handle the result ────────────────────────────────────────────
   if (error) {
-    // Log server-side for debugging; return a safe message to the UI
     console.error('[createVisitLog] Supabase error:', error.message);
     return { success: false, error: error.message };
   }
 
-  // If everything went well, return success so the UI can show a confirmation
   return { success: true, error: null };
 }
 
 /**
  * createPatient(formData)
- * ─────────────────────────────────────────────────────────────────────────────
- * PURPOSE : Register a new patient in the database.
- * This follows the exact same pattern as createVisitLog — extract, validate, insert.
- *
- * @param {FormData} formData
- * @returns {{ success: boolean, error: string|null }}
  */
 export async function createPatient(formData) {
-  // ── Step 1: Extract ───────────────────────────────────────────────────────
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const name      = formData.get('name');
   const age       = formData.get('age');
   const address   = formData.get('address');
   const contact   = formData.get('contact');
   const bloodType = formData.get('blood_type');
-  const lmp       = formData.get('lmp'); // Last Menstrual Period
+  const lmp       = formData.get('lmp'); 
 
-  // ── Step 2: Validate ──────────────────────────────────────────────────────
   if (!name || !lmp) {
     return { success: false, error: 'Patient name and LMP are required.' };
   }
 
-  // ── Step 3: Build the object ──────────────────────────────────────────────
   const newPatient = {
-    name,
-    age:        age ? parseInt(age, 10) : null, // convert string → number
+    full_name: name,
+    age:        age ? parseInt(age, 10) : null,
     address,
-    contact,
+    contact_number: contact, // mapped correctly based on schema
     blood_type: bloodType,
     lmp,
     created_at: new Date().toISOString(),
   };
 
-  // ── Step 4: Insert into Supabase ──────────────────────────────────────────
-  const { data, error } = await supabase
+  const supabaseServer = await createClient();
+  const { data, error } = await supabaseServer
     .from('patients')
     .insert(newPatient);
 
-  // ── Step 5: Return result ──────────────────────────────────────────────────
   if (error) {
     console.error('[createPatient] Supabase error:', error.message);
     return { success: false, error: error.message };
@@ -121,14 +118,11 @@ export async function createPatient(formData) {
 
 /**
  * updateAppointmentStatus(formData)
- * ─────────────────────────────────────────────────────────────────────────────
- * PURPOSE : Admin function to update the status of an appointment (e.g. Pending -> Approved).
- *
- * @param {FormData} formData
  */
 export async function updateAppointmentStatus(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  
   const appointment_id = formData.get('appointment_id');
   const status = formData.get('status');
 
@@ -143,25 +137,21 @@ export async function updateAppointmentStatus(formData) {
     console.error('[updateAppointmentStatus] error:', error.message);
   }
 
-  // Refresh both the dashboard and the dedicated appointments list
   revalidatePath('/admin');
   revalidatePath('/admin/appointments');
 }
 
 /**
  * addVisitLog(formData)
- * Extracts patient_id, bp, weight, and doctor_notes. Inserts into visit_logs.
  */
 export async function addVisitLog(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  
   const patient_id = formData.get('patient_id');
   const bp = formData.get('bp');
   const weight = formData.get('weight');
   const doctor_notes = formData.get('doctor_notes');
-
-  // Hardcode visit_date for the MVP since instructions only listed these 4 extraction fields
-  // In a real app we might get the date string from an input.
   const visit_date = new Date().toISOString().split('T')[0];
 
   if (!patient_id) return;
@@ -174,27 +164,36 @@ export async function addVisitLog(formData) {
     console.error('[addVisitLog] error:', error.message);
   }
 
-  // Refresh dynamic route
   revalidatePath('/admin/patients/[id]', 'page');
 }
 
 /**
  * updateBirthPlan(formData)
- * Extracts patient_id, delivery_location, and birth_attendant. Upserts into birth_plans.
  */
 export async function updateBirthPlan(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  
   const patient_id = formData.get('patient_id');
-  const delivery_location = formData.get('delivery_location');
-  const birth_attendant = formData.get('birth_attendant');
+  const updateData = {
+    patient_id,
+    delivery_location: formData.get('delivery_location'),
+    birth_attendant: formData.get('birth_attendant'),
+    transportation: formData.get('transportation'),
+    companion_name: formData.get('companion_name'),
+    is_philhealth_member: formData.get('is_philhealth_member'),
+    payment_method: formData.get('payment_method'),
+    emergency_name: formData.get('emergency_name'),
+    emergency_contact: formData.get('emergency_contact'),
+    backup_hospital_type: formData.get('backup_hospital_type'),
+    blood_donor_contact: formData.get('blood_donor_contact'),
+  };
 
   if (!patient_id) return;
 
-  // Uses upsert. It targets patient_id.
   const { error } = await supabaseServer
     .from('birth_plans')
-    .upsert({ patient_id, delivery_location, birth_attendant }, { onConflict: 'patient_id' });
+    .upsert(updateData, { onConflict: 'patient_id' });
 
   if (error) {
     console.error('[updateBirthPlan] error:', error.message);
@@ -205,14 +204,12 @@ export async function updateBirthPlan(formData) {
 
 /**
  * updatePrenatal(formData)
- * Extracts patient_id, health_history, and lab_results. Upserts into prenatal_records.
  */
 export async function updatePrenatal(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  
   const patient_id = formData.get('patient_id');
-  // Form input values return strings. Parsing them to JSON depending on form setup.
-  // For the MVP, we can assume text/string.
   const health_history = formData.get('health_history');
   const lab_results = formData.get('lab_results');
 
@@ -235,28 +232,78 @@ export async function updatePrenatal(formData) {
 
 /**
  * updateSettings(formData)
- * Overrides the default capacity bounds for daily bookings
  */
 export async function updateSettings(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  const max_morning_slots = parseInt(formData.get('max_morning_slots') || 10, 10);
-  const max_afternoon_slots = parseInt(formData.get('max_afternoon_slots') || 10, 10);
+  const clinic_name = formData.get('clinic_name');
+  const clinic_address = formData.get('clinic_address');
+  const clinic_contact = formData.get('clinic_contact');
 
   await supabaseServer.from('clinic_settings').upsert({
     id: 1,
-    max_morning_slots,
-    max_afternoon_slots
-  });
+    clinic_name,
+    clinic_address,
+    clinic_contact
+  }, { onConflict: 'id' });
 
-  revalidatePath('/admin/schedule', 'page');
+  revalidatePath('/admin/settings', 'page');
+  revalidatePath('/(public)', 'layout');
+}
+
+/**
+ * updateServices(servicesJson)
+ */
+export async function updateServices(servicesJson) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  await supabaseServer.from('clinic_settings').upsert({
+    id: 1,
+    services: servicesJson
+  }, { onConflict: 'id' });
+
+  revalidatePath('/admin/settings', 'page');
   revalidatePath('/book', 'page');
 }
 
 /**
+ * updateModularData(formData)
+ */
+export async function updateModularData(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const patient_id = formData.get('patient_id');
+  const module_id = formData.get('module_id');
+  const content = formData.get('content');
+
+  if (!patient_id || !module_id) return;
+
+  const { data: currentRecord } = await supabaseServer
+    .from('prenatal_records')
+    .select('modular_data')
+    .eq('patient_id', patient_id)
+    .single();
+
+  const modular_data = currentRecord?.modular_data || {};
+  modular_data[module_id] = { content, updated_at: new Date().toISOString() };
+
+  await supabaseServer.from('prenatal_records').upsert({
+    patient_id,
+    modular_data
+  }, { onConflict: 'patient_id' });
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+}
+
+/**
  * addBlockedDate(formData)
- * Locks a specific date from being selected publicly
  */
 export async function addBlockedDate(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  
   const supabaseServer = await createClient();
   const blocked_date = formData.get('blocked_date');
   const reason = formData.get('reason');
@@ -271,9 +318,10 @@ export async function addBlockedDate(formData) {
 
 /**
  * removeBlockedDate(formData)
- * Restores public access to a previously blocked date
  */
 export async function removeBlockedDate(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const id = formData.get('id');
   if (id) {
@@ -285,23 +333,22 @@ export async function removeBlockedDate(formData) {
 
 /**
  * addTimeSlot(formData)
- * Adds a new configurable clinic time slot with overlap and duplicate detection.
  */
 export async function addTimeSlot(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  const start_time = formData.get('start_time'); // e.g. "07:30"
-  const end_time   = formData.get('end_time');   // e.g. "08:30"
+  const start_time = formData.get('start_time'); 
+  const end_time   = formData.get('end_time');   
   const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
 
   if (!start_time || !end_time) return;
 
-  // Validate: end must be after start
   if (end_time <= start_time) {
     revalidatePath('/admin/schedule', 'page');
     return;
   }
 
-  // Format 24h time → "7:30 AM" style label automatically
   const formatTime = (t) => {
     const [h, m] = t.split(':').map(Number);
     const period = h >= 12 ? 'PM' : 'AM';
@@ -310,8 +357,6 @@ export async function addTimeSlot(formData) {
   };
   const label = `${formatTime(start_time)} - ${formatTime(end_time)}`;
 
-  // ── Overlap guard ─────────────────────────────────────────────────────────
-  // Reject if new range overlaps any existing slot: new.start < existing.end AND new.end > existing.start
   const { data: existing } = await supabaseServer
     .from('time_slots')
     .select('id, label, start_time, end_time')
@@ -323,7 +368,6 @@ export async function addTimeSlot(formData) {
   );
 
   if (hasOverlap) {
-    // Overlapping slot — skip silently. UI stays unchanged.
     revalidatePath('/admin/schedule', 'page');
     return;
   }
@@ -340,9 +384,10 @@ export async function addTimeSlot(formData) {
 
 /**
  * updateTimeSlot(formData)
- * Edits an existing time slot's time range and capacity, with overlap detection.
  */
 export async function updateTimeSlot(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const id           = formData.get('id');
   const start_time   = formData.get('start_time');
@@ -351,7 +396,6 @@ export async function updateTimeSlot(formData) {
 
   if (!id || !start_time || !end_time) return;
 
-  // Validate: end must be after start
   if (end_time <= start_time) return;
 
   const formatTime = (t) => {
@@ -362,7 +406,6 @@ export async function updateTimeSlot(formData) {
   };
   const label = `${formatTime(start_time)} - ${formatTime(end_time)}`;
 
-  // ── Overlap guard (exclude self) ──────────────────────────────────────────
   const { data: others } = await supabaseServer
     .from('time_slots')
     .select('id, start_time, end_time')
@@ -387,9 +430,10 @@ export async function updateTimeSlot(formData) {
 
 /**
  * deleteTimeSlot(formData)
- * Permanently removes a time slot 
  */
 export async function deleteTimeSlot(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const id = formData.get('id');
   if (id) {
@@ -401,9 +445,10 @@ export async function deleteTimeSlot(formData) {
 
 /**
  * updateTimeSlotCapacity(formData)
- * Updates the max patient capacity on a specific time slot
  */
 export async function updateTimeSlotCapacity(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const id = formData.get('id');
   const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
@@ -418,6 +463,8 @@ export async function updateTimeSlotCapacity(formData) {
  * toggleSaturdayBlock(formData)
  */
 export async function toggleSaturdayBlock(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const block_saturday = formData.get('block_saturday') === 'true';
   await supabaseServer.from('clinic_settings').update({ block_saturday }).eq('id', 1);
@@ -429,17 +476,21 @@ export async function toggleSaturdayBlock(formData) {
  * toggleSundayBlock(formData)
  */
 export async function toggleSundayBlock(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const block_sunday = formData.get('block_sunday') === 'true';
   await supabaseServer.from('clinic_settings').update({ block_sunday }).eq('id', 1);
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
 }
+
 /**
  * cancelAppointment(formData)
- * Allows patients to withdraw their own pending appointment requests.
  */
 export async function cancelAppointment(formData) {
+  if (!(await verifyAuth())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
   const id = formData.get('id');
   
@@ -462,14 +513,14 @@ export async function cancelAppointment(formData) {
 
 /**
  * sendConsultationMessage(formData)
- * Saves a message from either a patient or a staff member to the consultation thread.
  */
 export async function sendConsultationMessage(formData) {
+  if (!(await verifyAuth())) return { success: false, error: 'Unauthorized' };
+
   const supabaseServer = await createClient();
-  
   const patient_id = formData.get('patient_id');
   const sender_id  = formData.get('sender_id');
-  const sender_role = formData.get('sender_role'); // 'patient' or 'staff'
+  const sender_role = formData.get('sender_role'); 
   const content    = formData.get('content');
 
   if (!patient_id || !sender_id || !content) {
@@ -490,9 +541,90 @@ export async function sendConsultationMessage(formData) {
     return { success: false, error: error.message };
   }
 
-  // Revalidate both sides
   revalidatePath(`/patient/consultation`);
   revalidatePath(`/admin/patients/${patient_id}`);
   
   return { success: true };
+}
+
+/**
+ * uploadAttachment(formData)
+ */
+export async function uploadAttachment(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const patient_id = formData.get('patient_id');
+  const file = formData.get('file'); 
+  const category = formData.get('category') || 'Lab Result';
+
+  if (!patient_id || !file || file.size === 0) {
+    return { success: false, error: "Missing file or patient ID" };
+  }
+
+  const fileExt = file.name.split('.').pop();
+  const fileName = `${patient_id}/${Date.now()}.${fileExt}`;
+  const filePath = `${fileName}`;
+
+  const { data: uploadData, error: uploadError } = await supabaseServer
+    .storage
+    .from('patient-records')
+    .upload(filePath, file);
+
+  if (uploadError) {
+    console.error('[uploadAttachment] Storage error:', uploadError.message);
+    return { success: false, error: uploadError.message };
+  }
+
+  const { data: { publicUrl } } = supabaseServer
+    .storage
+    .from('patient-records')
+    .getPublicUrl(filePath);
+
+  const { error: dbError } = await supabaseServer
+    .from('patient_attachments')
+    .insert({
+      patient_id,
+      file_name: file.name,
+      file_url: publicUrl,
+      file_type: fileExt,
+      category
+    });
+
+  if (dbError) {
+    console.error('[uploadAttachment] DB error:', dbError.message);
+    return { success: false, error: dbError.message };
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+/**
+ * deleteAttachment(formData)
+ */
+export async function deleteAttachment(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+  const file_url = formData.get('file_url');
+  const patient_id = formData.get('patient_id');
+
+  if (!id || !file_url) return;
+
+  const pathParts = file_url.split('/patient-records/');
+  const filePath = pathParts[pathParts.length - 1];
+
+  await supabaseServer.storage.from('patient-records').remove([filePath]);
+  await supabaseServer.from('patient_attachments').delete().eq('id', id);
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+}
+
+/**
+ * updateAdminCredentials(formData)
+ */
+export async function updateAdminCredentials(formData) {
+  return { success: false, error: 'Admin credentials are now managed exclusively via central Auth Provider.' };
 }

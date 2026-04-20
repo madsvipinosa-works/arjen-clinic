@@ -109,9 +109,9 @@ const Navbar1 = ({
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center font-bold text-sm border border-rose-200 shadow-sm">
-                    {user.email.charAt(0).toUpperCase()}
+                    {(user.user_metadata?.full_name || user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}
                   </div>
-                  <span className="text-sm font-medium text-white max-w-[150px] truncate">{user.email}</span>
+                  <span className="text-sm font-medium text-white max-w-[150px] truncate">{user.user_metadata?.full_name || user.user_metadata?.name || user.email}</span>
                 </div>
                 <form action={logoutAction}>
                    <Button variant="outline" size="sm" className="border-rose-400 bg-transparent text-white hover:bg-rose-600 hover:text-white px-5 rounded-full">
@@ -187,9 +187,9 @@ const Navbar1 = ({
                        <div className="space-y-4">
                          <div className="flex items-center gap-3 p-3 bg-rose-50 rounded-xl border border-rose-100">
                             <div className="w-10 h-10 rounded-full bg-rose-200 text-rose-700 flex items-center justify-center font-bold text-lg">
-                              {user.email.charAt(0).toUpperCase()}
+                              {(user.user_metadata?.full_name || user.user_metadata?.name || user.email || "U").charAt(0).toUpperCase()}
                             </div>
-                            <span className="text-sm font-medium text-gray-800 truncate">{user.email}</span>
+                            <span className="text-sm font-medium text-gray-800 truncate">{user.user_metadata?.full_name || user.user_metadata?.name || user.email}</span>
                           </div>
                           <form action={logoutAction}>
                             <Button className="w-full h-11 bg-rose-500 hover:bg-rose-600 text-white rounded-full text-base">

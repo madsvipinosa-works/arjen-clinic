@@ -2,7 +2,7 @@ import { createClient } from "@/utils/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { CalendarX2, Clock, Plus } from "lucide-react";
+import { CalendarX2, Clock, Plus, Trash2, CalendarDays, AlertCircle } from "lucide-react";
 import { TimeSlotList } from "@/components/forms/time-slot-list";
 import {
   addBlockedDate,
@@ -33,6 +33,30 @@ export default async function ScheduleSettingsPage() {
     .select("*")
     .order("blocked_date", { ascending: true });
 
+  // Fetch upcoming appointments to calculate load (Phase 1 completion)
+  const today = new Date().toISOString().split('T')[0];
+  const { data: appointments } = await supabase
+    .from("appointments")
+    .select("appointment_date, time_preference")
+    .gte("appointment_date", today)
+    .neq("status", "Rejected");
+
+  // Build load map: { "2026-05-01": { "7:30 AM - 8:30 AM": 4, ... } }
+  const loadMap = {};
+  appointments?.forEach((a) => {
+    if (!a.appointment_date || !a.time_preference) return;
+    if (!loadMap[a.appointment_date]) loadMap[a.appointment_date] = {};
+    const label = a.time_preference;
+    loadMap[a.appointment_date][label] = (loadMap[a.appointment_date][label] || 0) + 1;
+  });
+
+  // Get next 5 days for the load view (typical work week)
+  const next5Days = Array.from({ length: 5 }, (_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + i);
+    return d.toISOString().split('T')[0];
+  });
+
   const blockSaturday = settings?.block_saturday || false;
   const blockSunday   = settings?.block_sunday   || false;
 
@@ -41,6 +65,92 @@ export default async function ScheduleSettingsPage() {
       <div>
         <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Clinic Schedule</h1>
         <p className="text-gray-500 mt-1">Configure booking windows, patient limits, and blocked dates.</p>
+      </div>
+
+      {/* ─── Incoming Patient Load (Phase 1 Visualizer) ────────────────── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
+        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100 bg-emerald-50/40">
+          <div className="p-2 bg-emerald-500 rounded-xl shadow-md">
+            <CalendarDays className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h2 className="font-bold text-gray-900 text-lg">Incoming Patient Load</h2>
+            <p className="text-xs text-gray-500">Overview of booked slots for the next 5 days.</p>
+          </div>
+        </div>
+        
+        <div className="p-6 overflow-x-auto">
+          <div className="flex gap-4 min-w-max pb-2">
+            {next5Days.map((dateStr) => {
+              const dateObj = new Date(dateStr + 'T00:00:00');
+              const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
+              const isBlocked = blockedDates?.some(b => b.blocked_date === dateStr);
+              const dayLoad = loadMap[dateStr] || {};
+              
+              return (
+                <div 
+                  key={dateStr} 
+                  className={`w-48 flex-shrink-0 rounded-2xl border p-4 transition-all ${
+                    isBlocked || (dateObj.getDay() === 6 && blockSaturday) || (dateObj.getDay() === 0 && blockSunday)
+                      ? "bg-gray-50 border-gray-100 opacity-60"
+                      : "bg-white border-gray-100 hover:shadow-md"
+                  }`}
+                >
+                  <div className="mb-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
+                      {dateObj.toLocaleDateString('en-US', { weekday: 'short' })}
+                    </p>
+                    <p className="text-sm font-bold text-gray-900">
+                      {dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                    </p>
+                  </div>
+
+                  {isBlocked ? (
+                    <div className="py-4 text-center">
+                      <AlertCircle className="w-5 h-5 text-gray-300 mx-auto mb-1" />
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Blocked</p>
+                    </div>
+                  ) : (isWeekend && ((dateObj.getDay() === 6 && blockSaturday) || (dateObj.getDay() === 0 && blockSunday))) ? (
+                    <div className="py-4 text-center">
+                      <CalendarX2 className="w-5 h-5 text-gray-300 mx-auto mb-1" />
+                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Weekend</p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {timeSlots?.map(slot => {
+                        const count = dayLoad[slot.label] || 0;
+                        const percentage = Math.min((count / slot.max_capacity) * 100, 100);
+                        const isFull = count >= slot.max_capacity;
+                        
+                        return (
+                          <div key={slot.id} className="space-y-1">
+                            <div className="flex justify-between text-[10px] font-bold uppercase">
+                              <span className="text-gray-500 truncate mr-2">{slot.label.split(' ')[0]}</span>
+                              <span className={isFull ? "text-red-500" : "text-gray-400"}>
+                                {count}/{slot.max_capacity}
+                              </span>
+                            </div>
+                            <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
+                              <div 
+                                className={`h-full rounded-full transition-all duration-500 ${
+                                  isFull ? "bg-red-500" : percentage > 70 ? "bg-amber-500" : "bg-emerald-500"
+                                }`}
+                                style={{ width: `${percentage}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {timeSlots?.length === 0 && (
+                        <p className="text-[10px] text-gray-400 italic text-center py-4">No slots active</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
       </div>
 
       <div className="grid lg:grid-cols-2 gap-8 items-start">

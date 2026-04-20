@@ -58,9 +58,9 @@ export async function signup(formData) {
 
   const email = formData.get("email");
   const password = formData.get("password");
-  
-  // Note: We can also extract first-name and last-name here and add it
-  // to the user's user_metadata in Supabase, but keeping it simple for now.
+  const firstName = formData.get("first-name");
+  const lastName = formData.get("last-name");
+  const fullName = `${firstName} ${lastName}`.trim();
 
   if (!email || !password) {
     redirect("/register?error=Email and password are required");
@@ -69,6 +69,11 @@ export async function signup(formData) {
   const { error } = await supabase.auth.signUp({
     email,
     password,
+    options: {
+      data: {
+        full_name: fullName,
+      }
+    }
   });
 
   if (error) {
@@ -104,9 +109,10 @@ export async function createAppointment(formData) {
   }
 
   // CRITICAL FOREIGN KEY FIX: Ensure patient profile exists first
+  const displayName = user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'Patient';
   const { error: profileError } = await supabase.from('patients').upsert({ 
     id: user.id, 
-    full_name: user.email || 'Patient' 
+    full_name: displayName 
   });
 
   if (profileError) {

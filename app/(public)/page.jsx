@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Heart, UserCheck, Stethoscope, Baby } from "lucide-react";
+import { Heart, UserCheck, Stethoscope, Baby, MessageSquare } from "lucide-react";
 
 export default function LandingPage() {
   return (
@@ -24,9 +24,9 @@ export default function LandingPage() {
             Experience compassionate, specialized care for your pregnancy journey and safe delivery in a warm, trustworthy environment.
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link href="/book">
+            <Link href="/patient/consultation">
               <Button size="lg" className="w-full sm:w-auto bg-rose-500 hover:bg-rose-600 text-white rounded-full px-8 py-6 text-lg shadow-lg shadow-rose-200">
-                Book a Consultation
+                Start Consultation
               </Button>
             </Link>
             <Link href="#services">
@@ -63,9 +63,9 @@ export default function LandingPage() {
               description="Counseling and methods to help you plan your family according to your personal health and goals."
             />
             <ServiceCard 
-              icon={<Stethoscope className="w-8 h-8 text-rose-500" />}
-              title="Medical Consultation"
-              description="General health check-ups, newborn screening, and well-being assessments for the whole family."
+              icon={<MessageSquare className="w-8 h-8 text-rose-500" />}
+              title="Online Consultation"
+              description="Real-time medical consultation with healthcare professionals. Ask questions, get advice, and manage your health remotely."
             />
           </div>
         </div>
