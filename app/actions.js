@@ -82,38 +82,148 @@ export async function createVisitLog(formData) {
 export async function createPatient(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
-  const name      = formData.get('name');
-  const age       = formData.get('age');
-  const address   = formData.get('address');
-  const contact   = formData.get('contact');
-  const bloodType = formData.get('blood_type');
-  const lmp       = formData.get('lmp'); 
+  const full_name           = formData.get('full_name');
+  const date_of_birth       = formData.get('date_of_birth') || null;
+  const age                 = formData.get('age');
+  const civil_status        = formData.get('civil_status') || null;
+  const husband_partner_name = formData.get('husband_partner_name') || null;
+  const address             = formData.get('address') || null;
+  const contact_number      = formData.get('contact_number') || null;
+  const blood_type          = formData.get('blood_type') || null;
+  const lmp                 = formData.get('lmp') || null;
+  // Auto-compute EDC = LMP + 280 days
+  const edc = lmp ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : null;
 
-  if (!name || !lmp) {
-    return { success: false, error: 'Patient name and LMP are required.' };
+  if (!full_name) {
+    return { success: false, error: 'Patient full name is required.' };
   }
 
   const newPatient = {
-    full_name: name,
-    age:        age ? parseInt(age, 10) : null,
+    full_name,
+    date_of_birth,
+    age: age ? parseInt(age, 10) : null,
+    civil_status,
+    husband_partner_name,
     address,
-    contact_number: contact, // mapped correctly based on schema
-    blood_type: bloodType,
+    contact_number,
+    blood_type,
     lmp,
+    edc,
     created_at: new Date().toISOString(),
   };
 
   const supabaseServer = await createClient();
-  const { data, error } = await supabaseServer
+  const { data: patientRow, error } = await supabaseServer
     .from('patients')
-    .insert(newPatient);
+    .insert(newPatient)
+    .select('id')
+    .single();
 
   if (error) {
     console.error('[createPatient] Supabase error:', error.message);
     return { success: false, error: error.message };
   }
 
-  return { success: true, error: null };
+  // Auto-create a prenatal_records row so modular records work immediately
+  await supabaseServer
+    .from('prenatal_records')
+    .insert({ patient_id: patientRow.id, modular_data: {} });
+
+  revalidatePath('/admin/patients');
+  redirect('/admin/patients');
+}
+
+/**
+ * updatePatient(formData)
+ * Updates an existing patient's demographic and clinical profile.
+ */
+export async function updatePatient(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+
+  if (!id) return { success: false, error: 'Missing patient ID.' };
+
+  const lmp = formData.get('lmp') || null;
+  const edc = lmp
+    ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    : null;
+
+  const updateData = {
+    full_name:             formData.get('full_name'),
+    date_of_birth:         formData.get('date_of_birth') || null,
+    age:                   formData.get('age') ? parseInt(formData.get('age'), 10) : null,
+    civil_status:          formData.get('civil_status') || null,
+    husband_partner_name:  formData.get('husband_partner_name') || null,
+    address:               formData.get('address') || null,
+    contact_number:        formData.get('contact_number') || null,
+    blood_type:            formData.get('blood_type') || null,
+    lmp,
+    edc,
+  };
+
+  const { error } = await supabaseServer
+    .from('patients')
+    .update(updateData)
+    .eq('id', id);
+
+  if (error) {
+    console.error('[updatePatient] Supabase error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/patients/${id}`);
+  revalidatePath('/admin/patients');
+  return { success: true };
+}
+
+/**
+ * updateModularData(formData)
+ * Saves a single module's content into the patient's prenatal_records.modular_data JSONB.
+ * Uses upsert so it works even if no prenatal_records row exists yet.
+ */
+export async function updateModularData(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const patient_id  = formData.get('patient_id');
+  const module_id   = formData.get('module_id');
+  const content     = formData.get('content');
+
+  if (!patient_id || !module_id) return { success: false, error: 'Missing patient_id or module_id.' };
+
+  // Fetch existing modular_data first so we can merge, not overwrite
+  const { data: existing } = await supabaseServer
+    .from('prenatal_records')
+    .select('modular_data')
+    .eq('patient_id', patient_id)
+    .single();
+
+  const currentData = existing?.modular_data || {};
+  const updatedData = {
+    ...currentData,
+    [module_id]: {
+      content,
+      updated_at: new Date().toISOString(),
+    },
+  };
+
+  // Upsert — inserts if no row, updates if row exists
+  const { error } = await supabaseServer
+    .from('prenatal_records')
+    .upsert(
+      { patient_id, modular_data: updatedData },
+      { onConflict: 'patient_id' }
+    );
+
+  if (error) {
+    console.error('[updateModularData] Supabase error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
 }
 
 /**
@@ -148,23 +258,134 @@ export async function addVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const patient_id = formData.get('patient_id');
-  const bp = formData.get('bp');
-  const weight = formData.get('weight');
+  const patient_id   = formData.get('patient_id');
+  const bp           = formData.get('bp');
+  const weight       = formData.get('weight');
   const doctor_notes = formData.get('doctor_notes');
-  const visit_date = new Date().toISOString().split('T')[0];
+  const visit_date   = formData.get('visit_date') || new Date().toISOString().split('T')[0];
 
-  if (!patient_id) return;
+  // New clinical fields
+  const aog_by_lmp   = formData.get('aog_by_lmp');
+  const aog_by_utz   = formData.get('aog_by_utz');
+  const temp         = formData.get('temp');
+  const pr           = formData.get('pr');
+  const rr           = formData.get('rr');
+  const fh           = formData.get('fh');
+  const fht          = formData.get('fht');
+  const ie           = formData.get('ie');
+  const next_visit   = formData.get('next_visit') || null;
+
+  if (!patient_id) return { success: false, error: 'Missing patient ID.' };
 
   const { error } = await supabaseServer
     .from('visit_logs')
-    .insert({ patient_id, bp, weight, doctor_notes, visit_date });
+    .insert({ 
+      patient_id, 
+      bp, 
+      weight, 
+      doctor_notes, 
+      visit_date,
+      aog_by_lmp,
+      aog_by_utz,
+      temp,
+      pr,
+      rr,
+      fh,
+      fht,
+      ie,
+      next_visit
+    });
 
   if (error) {
     console.error('[addVisitLog] error:', error.message);
+    return { success: false, error: error.message };
   }
 
-  revalidatePath('/admin/patients/[id]', 'page');
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+/**
+ * updateVisitLog(formData)
+ * Edits an existing visit log entry.
+ */
+export async function updateVisitLog(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id           = formData.get('id');
+  const patient_id   = formData.get('patient_id');
+  const bp           = formData.get('bp');
+  const weight       = formData.get('weight');
+  const doctor_notes = formData.get('doctor_notes');
+  const visit_date   = formData.get('visit_date');
+
+  // New clinical fields
+  const aog_by_lmp   = formData.get('aog_by_lmp');
+  const aog_by_utz   = formData.get('aog_by_utz');
+  const temp         = formData.get('temp');
+  const pr           = formData.get('pr');
+  const rr           = formData.get('rr');
+  const fh           = formData.get('fh');
+  const fht          = formData.get('fht');
+  const ie           = formData.get('ie');
+  const next_visit   = formData.get('next_visit') || null;
+
+  if (!id) return { success: false, error: 'Missing log ID.' };
+
+  const { error } = await supabaseServer
+    .from('visit_logs')
+    .update({ 
+      bp, 
+      weight, 
+      doctor_notes, 
+      visit_date,
+      aog_by_lmp,
+      aog_by_utz,
+      temp,
+      pr,
+      rr,
+      fh,
+      fht,
+      ie,
+      next_visit
+    })
+    .eq('id', id);
+
+  if (error) {
+    console.error('[updateVisitLog] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+/**
+ * deleteVisitLog(formData)
+ * Permanently removes a visit log entry.
+ */
+export async function deleteVisitLog(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id         = formData.get('id');
+  const patient_id = formData.get('patient_id');
+
+  if (!id) return { success: false, error: 'Missing log ID.' };
+
+  const { error } = await supabaseServer
+    .from('visit_logs')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('[deleteVisitLog] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
 }
 
 /**
@@ -175,21 +396,27 @@ export async function updateBirthPlan(formData) {
 
   const supabaseServer = await createClient();
   const patient_id = formData.get('patient_id');
+  
+  if (!patient_id) return { success: false, error: 'Missing patient ID.' };
+
   const updateData = {
     patient_id,
-    delivery_location: formData.get('delivery_location'),
-    birth_attendant: formData.get('birth_attendant'),
-    transportation: formData.get('transportation'),
-    companion_name: formData.get('companion_name'),
-    is_philhealth_member: formData.get('is_philhealth_member'),
-    payment_method: formData.get('payment_method'),
-    emergency_name: formData.get('emergency_name'),
-    emergency_contact: formData.get('emergency_contact'),
-    backup_hospital_type: formData.get('backup_hospital_type'),
-    blood_donor_contact: formData.get('blood_donor_contact'),
+    delivery_location:      formData.get('delivery_location'),
+    birth_attendant:        formData.get('birth_attendant'),
+    companion_type:         formData.get('companion_type'),
+    companion_family_name:  formData.get('companion_family_name'),
+    is_philhealth_facility: formData.get('is_philhealth_facility'),
+    is_philhealth_member:   formData.get('is_philhealth_member'),
+    philhealth_number:      formData.get('philhealth_number'),
+    payment_method:         formData.get('payment_method'),
+    // Keep these for backward compatibility or future use if they aren't on the main paper form
+    transportation:         formData.get('transportation'),
+    companion_name:         formData.get('companion_name'),
+    emergency_name:         formData.get('emergency_name'),
+    emergency_contact:      formData.get('emergency_contact'),
+    backup_hospital_type:   formData.get('backup_hospital_type'),
+    blood_donor_contact:    formData.get('blood_donor_contact'),
   };
-
-  if (!patient_id) return;
 
   const { error } = await supabaseServer
     .from('birth_plans')
@@ -197,9 +424,11 @@ export async function updateBirthPlan(formData) {
 
   if (error) {
     console.error('[updateBirthPlan] error:', error.message);
+    return { success: false, error: error.message };
   }
 
-  revalidatePath('/admin/patients/[id]', 'page');
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
 }
 
 /**
@@ -268,35 +497,6 @@ export async function updateServices(servicesJson) {
   revalidatePath('/book', 'page');
 }
 
-/**
- * updateModularData(formData)
- */
-export async function updateModularData(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-
-  const supabaseServer = await createClient();
-  const patient_id = formData.get('patient_id');
-  const module_id = formData.get('module_id');
-  const content = formData.get('content');
-
-  if (!patient_id || !module_id) return;
-
-  const { data: currentRecord } = await supabaseServer
-    .from('prenatal_records')
-    .select('modular_data')
-    .eq('patient_id', patient_id)
-    .single();
-
-  const modular_data = currentRecord?.modular_data || {};
-  modular_data[module_id] = { content, updated_at: new Date().toISOString() };
-
-  await supabaseServer.from('prenatal_records').upsert({
-    patient_id,
-    modular_data
-  }, { onConflict: 'patient_id' });
-
-  revalidatePath(`/admin/patients/${patient_id}`);
-}
 
 /**
  * addBlockedDate(formData)
@@ -559,10 +759,21 @@ export async function uploadAttachment(formData) {
   const category = formData.get('category') || 'Lab Result';
 
   if (!patient_id || !file || file.size === 0) {
-    return { success: false, error: "Missing file or patient ID" };
+    return { success: false, error: 'Missing file or patient ID.' };
   }
 
-  const fileExt = file.name.split('.').pop();
+  // 2C: Server-side validation — 10 MB limit
+  const MAX_SIZE = 10 * 1024 * 1024;
+  if (file.size > MAX_SIZE) {
+    return { success: false, error: 'File is too large. Maximum allowed size is 10 MB.' };
+  }
+
+  // Allowed file types
+  const fileExt = file.name.split('.').pop().toLowerCase();
+  const ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'pdf', 'doc', 'docx'];
+  if (!ALLOWED.includes(fileExt)) {
+    return { success: false, error: `File type ".${fileExt}" is not allowed. Use: ${ALLOWED.join(', ')}.` };
+  }
   const fileName = `${patient_id}/${Date.now()}.${fileExt}`;
   const filePath = `${fileName}`;
 
