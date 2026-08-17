@@ -22,11 +22,12 @@ import {
 
 // The unified navigational array map
 const navigationItems = [
-  { id: "dashboard",    name: "Dashboard",        icon: Home,           href: "/admin" },
-  { id: "appointments", name: "Appointments",      icon: ClipboardList,  href: "/admin/appointments" },
-  { id: "schedule",     name: "Clinic Schedule",  icon: CalendarDays,   href: "/admin/schedule" },
-  { id: "patients",     name: "Patients",         icon: User,           href: "/admin/patients" },
-  { id: "settings",     name: "System Settings",  icon: Settings,       href: "/admin/settings" },
+  { id: "dashboard", name: "Dashboard", icon: Home, href: "/admin" },
+  { id: "appointments", name: "Appointments", icon: ClipboardList, href: "/admin/appointments" },
+  { id: "schedule", name: "Clinic Schedule", icon: CalendarDays, href: "/admin/schedule" },
+  { id: "patients", name: "Patients", icon: User, href: "/admin/patients" },
+  { id: "cms", name: "Website Content", icon: LayoutTemplate, href: "/admin/cms" },
+  { id: "settings", name: "System Settings", icon: Settings, href: "/admin/settings" },
 ];
 
 export function Sidebar({ className = "", children }) {
@@ -47,7 +48,7 @@ export function Sidebar({ className = "", children }) {
 
   const toggleSidebar = () => setIsOpen(!isOpen);
   const toggleCollapse = () => setIsCollapsed(!isCollapsed);
-  
+
   const toggleSubMenu = (id, e) => {
     e.preventDefault();
     setExpandedMenus(prev => ({ ...prev, [id]: !prev[id] }));
@@ -97,9 +98,8 @@ export function Sidebar({ className = "", children }) {
 
       {/* Sidebar Core */}
       <aside
-        className={`fixed top-0 left-0 h-full bg-white border-r border-rose-100 z-50 transition-all duration-300 ease-in-out flex flex-col ${
-          isOpen ? "translate-x-0" : "-translate-x-full"
-        } ${isCollapsed ? "w-20" : "w-72"} md:translate-x-0 ${className}`}
+        className={`fixed top-0 left-0 h-full bg-white border-r border-rose-100 z-50 transition-all duration-300 ease-in-out flex flex-col ${isOpen ? "translate-x-0" : "-translate-x-full"
+          } ${isCollapsed ? "w-20" : "w-72"} md:translate-x-0 ${className}`}
       >
         {/* Header with logo and collapse button */}
         <div className="flex items-center justify-between p-5 border-b border-rose-100 bg-rose-50/40">
@@ -165,11 +165,10 @@ export function Sidebar({ className = "", children }) {
                     <div>
                       <button
                         onClick={(e) => toggleSubMenu(item.id, e)}
-                        className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-all duration-200 group ${
-                          isActive || isExpanded
+                        className={`w-full flex items-center justify-between px-3 py-3 rounded-xl transition-all duration-200 group ${isActive || isExpanded
                             ? "bg-rose-50 text-rose-700"
                             : "text-gray-600 hover:bg-rose-50/50 hover:text-gray-900"
-                        } ${isCollapsed ? "justify-center px-1" : ""}`}
+                          } ${isCollapsed ? "justify-center px-1" : ""}`}
                         title={isCollapsed ? item.name : undefined}
                       >
                         <div className="flex items-center gap-3 w-full">
@@ -181,32 +180,31 @@ export function Sidebar({ className = "", children }) {
                           )}
                         </div>
                         {!isCollapsed && (
-                           <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${isExpanded ? "rotate-180 text-rose-500" : ""}`} />
+                          <ChevronDown className={`h-4 w-4 text-gray-400 transition-transform duration-200 ${isExpanded ? "rotate-180 text-rose-500" : ""}`} />
                         )}
                       </button>
 
                       {/* Sub-items Render */}
                       {isExpanded && !isCollapsed && (
                         <ul className="mt-1 ml-4 pl-4 border-l-2 border-rose-100 space-y-1">
-                           {item.subItems.map(sub => {
-                             const isSubActive = pathname === sub.href;
-                             return (
-                               <li key={sub.id}>
-                                  <Link
-                                    href={sub.href}
-                                    onClick={closeMobileSidebar}
-                                    className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${
-                                      isSubActive 
-                                      ? "text-rose-700 bg-rose-50 font-bold" 
+                          {item.subItems.map(sub => {
+                            const isSubActive = pathname === sub.href;
+                            return (
+                              <li key={sub.id}>
+                                <Link
+                                  href={sub.href}
+                                  onClick={closeMobileSidebar}
+                                  className={`flex items-center px-3 py-2 text-sm rounded-lg transition-colors ${isSubActive
+                                      ? "text-rose-700 bg-rose-50 font-bold"
                                       : "text-gray-500 font-medium hover:text-rose-600 hover:bg-rose-50/50"
                                     }`}
-                                  >
-                                    <div className={`w-1.5 h-1.5 rounded-full mr-2 ${isSubActive ? "bg-rose-500" : "bg-transparent"}`} />
-                                    {sub.name}
-                                  </Link>
-                               </li>
-                             )
-                           })}
+                                >
+                                  <div className={`w-1.5 h-1.5 rounded-full mr-2 ${isSubActive ? "bg-rose-500" : "bg-transparent"}`} />
+                                  {sub.name}
+                                </Link>
+                              </li>
+                            )
+                          })}
                         </ul>
                       )}
                     </div>
@@ -215,15 +213,14 @@ export function Sidebar({ className = "", children }) {
                     <Link
                       href={item.href}
                       onClick={closeMobileSidebar}
-                      className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl transition-all duration-200 group ${
-                        isActive
+                      className={`w-full flex items-center space-x-3 px-3 py-3 rounded-xl transition-all duration-200 group ${isActive
                           ? "bg-rose-500 text-white shadow-md shadow-rose-200"
                           : "text-gray-600 hover:bg-rose-50 hover:text-gray-900"
-                      } ${isCollapsed ? "justify-center px-1" : ""}`}
+                        } ${isCollapsed ? "justify-center px-1" : ""}`}
                       title={isCollapsed ? item.name : undefined}
                     >
                       <Icon className={`h-5 w-5 flex-shrink-0 transition-colors ${isActive ? "text-white" : "text-gray-400 group-hover:text-rose-500"}`} />
-                      
+
                       {!isCollapsed && (
                         <span className={`text-sm tracking-wide ${isActive ? "font-semibold" : "font-medium"}`}>
                           {item.name}
@@ -248,29 +245,28 @@ export function Sidebar({ className = "", children }) {
         {/* Bottom section with profile and logout */}
         <div className="mt-auto border-t border-rose-100 bg-gray-50/50 pt-2 pb-4">
           <div className="p-3">
-             <button
-                onClick={() => {
-                  localStorage.removeItem('adminSession');
-                  window.location.href = '/admin/login';
-                }}
-                className={`w-full flex items-center rounded-xl transition-all duration-200 group text-gray-500 hover:bg-red-50 hover:text-red-600 ${isCollapsed ? "justify-center px-1 py-3" : "space-x-3 px-3 py-3"}`}
-                title={isCollapsed ? "Logout" : undefined}
-              >
-                <LogOut className="h-5 w-5 flex-shrink-0 text-gray-400 group-hover:text-red-500 transition-colors" />
-                {!isCollapsed && <span className="text-sm font-medium tracking-wide">Secure Logout</span>}
-             </button>
+            <button
+              onClick={() => {
+                localStorage.removeItem('adminSession');
+                window.location.href = '/admin/login';
+              }}
+              className={`w-full flex items-center rounded-xl transition-all duration-200 group text-gray-500 hover:bg-red-50 hover:text-red-600 ${isCollapsed ? "justify-center px-1 py-3" : "space-x-3 px-3 py-3"}`}
+              title={isCollapsed ? "Logout" : undefined}
+            >
+              <LogOut className="h-5 w-5 flex-shrink-0 text-gray-400 group-hover:text-red-500 transition-colors" />
+              {!isCollapsed && <span className="text-sm font-medium tracking-wide">Secure Logout</span>}
+            </button>
           </div>
         </div>
       </aside>
 
       {/* Main Administrative Screen Render Area */}
       <main
-        className={`flex-1 transition-all duration-300 ease-in-out bg-white min-h-screen ${
-          isCollapsed ? "md:ml-20" : "md:ml-72"
-        }`}
+        className={`flex-1 transition-all duration-300 ease-in-out bg-white min-h-screen ${isCollapsed ? "md:ml-20" : "md:ml-72"
+          }`}
       >
         <div className="w-full h-full">
-           {children}
+          {children}
         </div>
       </main>
     </div>

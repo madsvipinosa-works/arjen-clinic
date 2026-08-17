@@ -108,20 +108,61 @@ export async function createAppointment(formData) {
     redirect("/book?error=Service type and appointment date are required");
   }
 
-  // CRITICAL FOREIGN KEY FIX: Ensure patient profile exists first
-  const displayName = user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'Patient';
-  const { error: profileError } = await supabase.from('patients').upsert({ 
-    id: user.id, 
-    full_name: displayName 
-  });
+  // Capacity Check
+  const { data: settings } = await supabase.from('clinic_settings').select('max_morning_slots, max_afternoon_slots').eq('id', 1).single();
+  const maxSlots = time === 'AM' ? (settings?.max_morning_slots || 10) : (settings?.max_afternoon_slots || 10);
+  
+  const { count, error: countError } = await supabase.from('appointments')
+    .select('*', { count: 'exact', head: true })
+    .eq('appointment_date', appointment_date)
+    .eq('time_preference', time)
+    .neq('status', 'Cancelled');
+    
+  if (countError) {
+    redirect(`/book?error=${encodeURIComponent(countError.message)}`);
+  }
+  
+  if (count >= maxSlots) {
+    redirect(`/book?error=The ${time} shift on this date is fully booked. Please choose another date or time.`);
+  }
 
-  if (profileError) {
-    redirect(`/book?error=${encodeURIComponent(profileError.message)}`);
+  // Handle Patient Identity
+  let patientId = formData.get("patient_id");
+  let patientName = formData.get("patient_name");
+
+  if (!patientId) {
+    if (patientName) {
+      // Create new dependent patient
+      const { data: newPatient, error: createError } = await supabase.from('patients').insert({
+        account_id: user.id,
+        full_name: patientName
+      }).select('id').single();
+      
+      if (createError) redirect(`/book?error=${encodeURIComponent(createError.message)}`);
+      patientId = newPatient.id;
+    } else {
+      // Fallback: see if they have an existing profile, or create a default one
+      const { data: existingPatient } = await supabase.from('patients')
+        .select('id').eq('account_id', user.id).limit(1).single();
+      
+      if (existingPatient) {
+        patientId = existingPatient.id;
+      } else {
+        const displayName = user.user_metadata?.full_name || user.user_metadata?.name || user.email || 'Patient';
+        const { data: defaultPatient, error: profileError } = await supabase.from('patients').insert({ 
+          account_id: user.id, 
+          full_name: displayName 
+        }).select('id').single();
+        
+        if (profileError) redirect(`/book?error=${encodeURIComponent(profileError.message)}`);
+        patientId = defaultPatient.id;
+      }
+    }
   }
 
   // Save the appointment with augmented payloads
   const { error } = await supabase.from('appointments').insert({ 
-    patient_id: user.id, 
+    patient_id: patientId, 
     service_type, 
     appointment_date,
     time_preference: time,

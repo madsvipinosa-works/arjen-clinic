@@ -90,9 +90,8 @@ export async function createPatient(formData) {
   const address             = formData.get('address') || null;
   const contact_number      = formData.get('contact_number') || null;
   const blood_type          = formData.get('blood_type') || null;
-  const lmp                 = formData.get('lmp') || null;
-  // Auto-compute EDC = LMP + 280 days
-  const edc = lmp ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : null;
+  const allergies           = formData.get('allergies') || null;
+  const is_high_risk        = formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true';
 
   if (!full_name) {
     return { success: false, error: 'Patient full name is required.' };
@@ -107,8 +106,8 @@ export async function createPatient(formData) {
     address,
     contact_number,
     blood_type,
-    lmp,
-    edc,
+    allergies,
+    is_high_risk,
     created_at: new Date().toISOString(),
   };
 
@@ -145,11 +144,6 @@ export async function updatePatient(formData) {
 
   if (!id) return { success: false, error: 'Missing patient ID.' };
 
-  const lmp = formData.get('lmp') || null;
-  const edc = lmp
-    ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-    : null;
-
   const updateData = {
     full_name:             formData.get('full_name'),
     date_of_birth:         formData.get('date_of_birth') || null,
@@ -159,8 +153,8 @@ export async function updatePatient(formData) {
     address:               formData.get('address') || null,
     contact_number:        formData.get('contact_number') || null,
     blood_type:            formData.get('blood_type') || null,
-    lmp,
-    edc,
+    allergies:             formData.get('allergies') || null,
+    is_high_risk:          formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true',
   };
 
   const { error } = await supabaseServer
@@ -175,6 +169,78 @@ export async function updatePatient(formData) {
 
   revalidatePath(`/admin/patients/${id}`);
   revalidatePath('/admin/patients');
+  return { success: true };
+}
+
+/**
+ * createMaternalEpisode(formData)
+ */
+export async function createMaternalEpisode(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const patient_id = formData.get('patient_id');
+  
+  if (!patient_id) return { success: false, error: 'Missing patient ID' };
+  
+  const lmp = formData.get('lmp') || null;
+  const edc = lmp
+    ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    : null;
+    
+  const newEpisode = {
+    patient_id,
+    lmp,
+    edc,
+    gravida: formData.get('gravida') ? parseInt(formData.get('gravida'), 10) : null,
+    para: formData.get('para') ? parseInt(formData.get('para'), 10) : null,
+    status: formData.get('status') || 'Active'
+  };
+  
+  const { error } = await supabaseServer.from('maternal_episodes').insert(newEpisode);
+  
+  if (error) {
+    console.error('[createMaternalEpisode] error:', error.message);
+    return { success: false, error: error.message };
+  }
+  
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+/**
+ * updateMaternalEpisode(formData)
+ */
+export async function updateMaternalEpisode(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id = formData.get('id');
+  const patient_id = formData.get('patient_id');
+  
+  if (!id) return { success: false, error: 'Missing episode ID' };
+  
+  const lmp = formData.get('lmp') || null;
+  const edc = lmp
+    ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+    : null;
+    
+  const updateData = {
+    lmp,
+    edc,
+    gravida: formData.get('gravida') ? parseInt(formData.get('gravida'), 10) : null,
+    para: formData.get('para') ? parseInt(formData.get('para'), 10) : null,
+    status: formData.get('status') || 'Active'
+  };
+  
+  const { error } = await supabaseServer.from('maternal_episodes').update(updateData).eq('id', id);
+  
+  if (error) {
+    console.error('[updateMaternalEpisode] error:', error.message);
+    return { success: false, error: error.message };
+  }
+  
+  revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
 }
 
@@ -235,12 +301,18 @@ export async function updateAppointmentStatus(formData) {
   const supabaseServer = await createClient();
   const appointment_id = formData.get('appointment_id');
   const status = formData.get('status');
+  const attending_staff_id = formData.get('attending_staff_id');
 
   if (!appointment_id || !status) return;
 
+  const updatePayload = { status };
+  if (attending_staff_id) {
+    updatePayload.attending_staff_id = attending_staff_id;
+  }
+
   const { error } = await supabaseServer
     .from('appointments')
-    .update({ status })
+    .update(updatePayload)
     .eq('id', appointment_id);
 
   if (error) {
@@ -258,11 +330,15 @@ export async function addVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const patient_id   = formData.get('patient_id');
-  const bp           = formData.get('bp');
-  const weight       = formData.get('weight');
-  const doctor_notes = formData.get('doctor_notes');
-  const visit_date   = formData.get('visit_date') || new Date().toISOString().split('T')[0];
+  const { data: { user } } = await supabaseServer.auth.getUser();
+  
+  const patient_id          = formData.get('patient_id');
+  const maternal_episode_id = formData.get('maternal_episode_id');
+  const attending_staff_id  = user?.id;
+  const bp                  = formData.get('bp');
+  const weight              = formData.get('weight');
+  const doctor_notes        = formData.get('doctor_notes');
+  const visit_date          = formData.get('visit_date') || new Date().toISOString().split('T')[0];
 
   // New clinical fields
   const aog_by_lmp   = formData.get('aog_by_lmp');
@@ -280,7 +356,9 @@ export async function addVisitLog(formData) {
   const { error } = await supabaseServer
     .from('visit_logs')
     .insert({ 
-      patient_id, 
+      patient_id,
+      maternal_episode_id,
+      attending_staff_id,
       bp, 
       weight, 
       doctor_notes, 
@@ -313,12 +391,13 @@ export async function updateVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id           = formData.get('id');
-  const patient_id   = formData.get('patient_id');
-  const bp           = formData.get('bp');
-  const weight       = formData.get('weight');
-  const doctor_notes = formData.get('doctor_notes');
-  const visit_date   = formData.get('visit_date');
+  const id                  = formData.get('id');
+  const patient_id          = formData.get('patient_id');
+  const maternal_episode_id = formData.get('maternal_episode_id');
+  const bp                  = formData.get('bp');
+  const weight              = formData.get('weight');
+  const doctor_notes        = formData.get('doctor_notes');
+  const visit_date          = formData.get('visit_date');
 
   // New clinical fields
   const aog_by_lmp   = formData.get('aog_by_lmp');
@@ -336,6 +415,7 @@ export async function updateVisitLog(formData) {
   const { error } = await supabaseServer
     .from('visit_logs')
     .update({ 
+      maternal_episode_id,
       bp, 
       weight, 
       doctor_notes, 
@@ -494,7 +574,9 @@ export async function updateServices(servicesJson) {
   }, { onConflict: 'id' });
 
   revalidatePath('/admin/settings', 'page');
+  revalidatePath('/admin/cms', 'page');
   revalidatePath('/book', 'page');
+  revalidatePath('/', 'page');
 }
 
 
@@ -838,4 +920,380 @@ export async function deleteAttachment(formData) {
  */
 export async function updateAdminCredentials(formData) {
   return { success: false, error: 'Admin credentials are now managed exclusively via central Auth Provider.' };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POSTPARTUM CARE ACTIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * createPostpartumRecord(formData)
+ */
+export async function createPostpartumRecord(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const patient_id               = formData.get('patient_id');
+  const delivery_date            = formData.get('delivery_date');
+  const delivery_type            = formData.get('delivery_type');
+  const maternal_recovery_notes  = formData.get('maternal_recovery_notes') || null;
+  const feeding_method           = formData.get('feeding_method') || null;
+  const follow_up_date           = formData.get('follow_up_date') || null;
+
+  const baby_vitals = {
+    weight_kg:   formData.get('baby_weight_kg')   || null,
+    length_cm:   formData.get('baby_length_cm')   || null,
+    apgar_score: formData.get('baby_apgar_score') || null,
+    gender:      formData.get('baby_gender')      || null,
+  };
+
+  if (!patient_id || !delivery_date) {
+    return { success: false, error: 'Patient ID and delivery date are required.' };
+  }
+
+  const { error } = await supabaseServer
+    .from('postpartum_records')
+    .insert({ patient_id, delivery_date, delivery_type, baby_vitals, maternal_recovery_notes, feeding_method, follow_up_date });
+
+  if (error) {
+    console.error('[createPostpartumRecord] Supabase error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}/postpartum`);
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+/**
+ * updatePostpartumRecord(formData)
+ */
+export async function updatePostpartumRecord(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id                       = formData.get('id');
+  const patient_id               = formData.get('patient_id');
+  const delivery_type            = formData.get('delivery_type') || null;
+  const maternal_recovery_notes  = formData.get('maternal_recovery_notes') || null;
+  const feeding_method           = formData.get('feeding_method') || null;
+  const follow_up_date           = formData.get('follow_up_date') || null;
+
+  const baby_vitals = {
+    weight_kg:   formData.get('baby_weight_kg')   || null,
+    length_cm:   formData.get('baby_length_cm')   || null,
+    apgar_score: formData.get('baby_apgar_score') || null,
+    gender:      formData.get('baby_gender')      || null,
+  };
+
+  if (!id) return { success: false, error: 'Missing postpartum record ID.' };
+
+  const { error } = await supabaseServer
+    .from('postpartum_records')
+    .update({ delivery_type, baby_vitals, maternal_recovery_notes, feeding_method, follow_up_date })
+    .eq('id', id);
+
+  if (error) {
+    console.error('[updatePostpartumRecord] Supabase error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}/postpartum`);
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HERO IMAGE MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * updateHeroImage(formData)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * PURPOSE : Upload a clinic hero photo to Supabase Storage and save the
+ *           public URL into clinic_settings.hero_image_url (row id=1).
+ *           Passing action=remove clears the image (sets null).
+ * CALLED  : From the Hero Image card on /admin/settings
+ */
+export async function updateHeroImage(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const action = formData.get('action'); // 'upload' | 'remove' | 'url'
+  const position = formData.get('position') || 'left'; // 'left' | 'right'
+  const targetColumn = position === 'right' ? 'hero_image_right_url' : 'hero_image_url';
+
+  // ── REMOVE ──────────────────────────────────────────────────────────────────
+  if (action === 'remove') {
+    const { error } = await supabaseServer
+      .from('clinic_settings')
+      .update({ [targetColumn]: null })
+      .eq('id', 1);
+
+    if (error) {
+      console.error('[updateHeroImage] Remove error:', error.message);
+      return { success: false, error: error.message };
+    }
+    revalidatePath('/');
+    revalidatePath('/admin/settings');
+    revalidatePath('/admin/cms');
+    return { success: true };
+  }
+
+  // ── DIRECT URL ──────────────────────────────────────────────────────────────
+  const directUrl = formData.get('hero_image_url_direct');
+  if (action === 'url' || (directUrl && typeof directUrl === 'string' && directUrl.trim().startsWith('http'))) {
+    const cleanUrl = directUrl.trim();
+    const { error: dbError } = await supabaseServer
+      .from('clinic_settings')
+      .update({ [targetColumn]: cleanUrl })
+      .eq('id', 1);
+
+    if (dbError) {
+      console.error('[updateHeroImage] Direct URL error:', dbError.message);
+      return { success: false, error: dbError.message };
+    }
+
+    revalidatePath('/');
+    revalidatePath('/admin/settings');
+    revalidatePath('/admin/cms');
+    return { success: true };
+  }
+
+  // ── FILE UPLOAD ─────────────────────────────────────────────────────────────
+  const file = formData.get('hero_image');
+
+  if (!file || file.size === 0) {
+    return { success: false, error: 'No file selected.' };
+  }
+
+  // Validate size (max 10 MB for hero photo)
+  if (file.size > 10 * 1024 * 1024) {
+    return { success: false, error: 'File too large. Maximum size is 10 MB.' };
+  }
+
+  const rawExt = file.name ? file.name.split('.').pop() : '';
+  const fileExt = (rawExt || 'jpg').toLowerCase();
+  const ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'svg', 'gif'];
+  if (!ALLOWED.includes(fileExt)) {
+    return { success: false, error: `Only JPG, PNG, and WebP files are supported.` };
+  }
+
+  const timestamp = Date.now();
+  const filePath = `hero/${position}_${timestamp}.${fileExt}`;
+
+  let publicUrl = null;
+
+  // 1. Try uploading to clinic-assets
+  const { error: uploadError } = await supabaseServer
+    .storage
+    .from('clinic-assets')
+    .upload(filePath, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+
+  if (!uploadError) {
+    const { data } = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath);
+    publicUrl = data?.publicUrl;
+  } else {
+    console.warn('[updateHeroImage] clinic-assets upload warning:', uploadError.message);
+    // 2. Fallback to patient-records bucket
+    const { error: fallbackError } = await supabaseServer
+      .storage
+      .from('patient-records')
+      .upload(filePath, file, { upsert: true, contentType: file.type || 'image/jpeg' });
+
+    if (fallbackError) {
+      console.error('[updateHeroImage] Both storage buckets failed:', fallbackError.message);
+      return { success: false, error: fallbackError.message };
+    }
+
+    const { data } = supabaseServer.storage.from('patient-records').getPublicUrl(filePath);
+    publicUrl = data?.publicUrl;
+  }
+
+  if (!publicUrl) {
+    return { success: false, error: 'Failed to generate public URL for uploaded photo.' };
+  }
+
+  const { error: dbError } = await supabaseServer
+    .from('clinic_settings')
+    .update({ [targetColumn]: publicUrl })
+    .eq('id', 1);
+
+  if (dbError) {
+    console.error('[updateHeroImage] Database update error:', dbError.message);
+    return { success: false, error: dbError.message };
+  }
+
+  revalidatePath('/');
+  revalidatePath('/admin/settings');
+  revalidatePath('/admin/cms');
+  return { success: true };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CMS CONTENT MANAGEMENT
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * updateHeroContent(formData)
+ */
+export async function updateHeroContent(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const hero_eyebrow = formData.get('hero_eyebrow');
+  const hero_title = formData.get('hero_title');
+  const hero_subtitle = formData.get('hero_subtitle');
+
+  const { error } = await supabaseServer.from('clinic_settings').upsert({
+    id: 1,
+    hero_eyebrow,
+    hero_title,
+    hero_subtitle
+  }, { onConflict: 'id' });
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath('/');
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/cms');
+  return { success: true };
+}
+
+/**
+ * updateNavbarLogo(formData)
+ */
+export async function updateNavbarLogo(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const action = formData.get('action'); // 'upload' | 'remove'
+
+  if (action === 'remove') {
+    const { error } = await supabaseServer.from('clinic_settings').update({ navbar_logo: null }).eq('id', 1);
+    if (error) return { success: false, error: error.message };
+    revalidatePath('/', 'layout');
+    revalidatePath('/admin/cms');
+    return { success: true };
+  }
+
+  const file = formData.get('navbar_logo');
+  if (!file || file.size === 0) return { success: false, error: 'No file selected.' };
+
+  const fileExt = file.name.split('.').pop().toLowerCase();
+  const filePath = `logo/${Date.now()}.${fileExt}`;
+
+  const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true });
+
+  let publicUrl = '';
+  if (uploadError) {
+    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true });
+    if (fallbackError) return { success: false, error: fallbackError.message };
+    publicUrl = supabaseServer.storage.from('patient-records').getPublicUrl(filePath).data.publicUrl;
+  } else {
+    publicUrl = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath).data.publicUrl;
+  }
+
+  const { error: dbError } = await supabaseServer.from('clinic_settings').update({ navbar_logo: publicUrl }).eq('id', 1);
+  if (dbError) return { success: false, error: dbError.message };
+
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/cms');
+  return { success: true };
+}
+
+/**
+ * updateAboutContent(formData)
+ */
+export async function updateAboutContent(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const about_title = formData.get('about_title');
+  const about_description = formData.get('about_description');
+  
+  let trust_points = [];
+  try {
+    const raw = formData.get('trust_points');
+    if (raw) trust_points = JSON.parse(raw);
+  } catch (e) {
+    return { success: false, error: 'Invalid JSON for trust points' };
+  }
+
+  const { error } = await supabaseServer.from('clinic_settings').upsert({
+    id: 1,
+    about_title,
+    about_description,
+    trust_points
+  }, { onConflict: 'id' });
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath('/');
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/cms');
+  return { success: true };
+}
+
+/**
+ * updateFooterContent(formData)
+ */
+export async function updateFooterContent(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  
+  const clinic_address = formData.get('clinic_address');
+  const clinic_contact = formData.get('clinic_contact');
+  const footer_email = formData.get('footer_email');
+  const social_facebook = formData.get('social_facebook');
+  const social_instagram = formData.get('social_instagram');
+  const operating_hours_weekdays = formData.get('operating_hours_weekdays');
+  const operating_hours_saturday = formData.get('operating_hours_saturday');
+  const operating_hours_sunday = formData.get('operating_hours_sunday');
+  const emergency_notice = formData.get('emergency_notice');
+
+  const { error } = await supabaseServer.from('clinic_settings').upsert({
+    id: 1,
+    clinic_address,
+    clinic_contact,
+    footer_email,
+    social_facebook,
+    social_instagram,
+    operating_hours_weekdays,
+    operating_hours_saturday,
+    operating_hours_sunday,
+    emergency_notice
+  }, { onConflict: 'id' });
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath('/');
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/cms');
+  return { success: true };
+}
+
+/**
+ * updateSEOMetadata(formData)
+ */
+export async function updateSEOMetadata(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const seo_meta_title = formData.get('seo_meta_title');
+  const seo_meta_description = formData.get('seo_meta_description');
+
+  const { error } = await supabaseServer.from('clinic_settings').upsert({
+    id: 1,
+    seo_meta_title,
+    seo_meta_description
+  }, { onConflict: 'id' });
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath('/');
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/cms');
+  return { success: true };
 }

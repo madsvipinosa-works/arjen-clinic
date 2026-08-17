@@ -14,6 +14,9 @@ import {
   ListFilter,
   Users,
   Check,
+  UserCheck,
+  ShieldAlert,
+  AlertTriangle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -28,8 +31,8 @@ const STATUS = {
 const TABS = ["All", "Pending", "Approved", "Completed", "Rejected"];
 
 const SERVICE_LABELS = {
-  prenatal: "Prenatal",
-  delivery: "Delivery",
+  prenatal: "Prenatal Check-up",
+  delivery: "Safe Delivery",
   family:   "Family Planning",
   general:  "General Consult",
 };
@@ -50,7 +53,12 @@ function SortIcon({ field, sortField, sortDir }) {
     : <ChevronDown className="w-3.5 h-3.5 text-rose-500" />;
 }
 
-export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
+export function AppointmentsManager({ 
+  appointments = [], 
+  staffUsers = [],
+  clinicSettings = { max_morning_slots: 10, max_afternoon_slots: 10 },
+  updateAppointmentStatus 
+}) {
   const [isPending, startTransition] = useTransition();
   const [activeTab,  setActiveTab]  = useState("Pending");
   const [search,     setSearch]     = useState("");
@@ -58,6 +66,47 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
   const [sortDir,    setSortDir]    = useState("asc");
   const [selected,   setSelected]   = useState(new Set());
   const [bulkStatus, setBulkStatus] = useState("Approved");
+  const [assignedStaff, setAssignedStaff] = useState({}); // { [apptId]: staffId }
+
+  const todayStr = new Date().toISOString().split("T")[0];
+
+  // ── Staff Map ─────────────────────────────────────────────────────────────
+  const staffMap = useMemo(() => {
+    const m = {};
+    staffUsers.forEach((u) => {
+      m[u.id] = u.email ? u.email.split("@")[0] : `Staff (${u.id.slice(0, 5)})`;
+    });
+    return m;
+  }, [staffUsers]);
+
+  // ── Daily Slot Capacity Calculations ──────────────────────────────────────
+  const todayCapacity = useMemo(() => {
+    const maxMorning = clinicSettings?.max_morning_slots || 10;
+    const maxAfternoon = clinicSettings?.max_afternoon_slots || 10;
+
+    let morningBooked = 0;
+    let afternoonBooked = 0;
+
+    appointments.forEach((a) => {
+      if (a.appointment_date === todayStr && a.status !== "Rejected" && a.status !== "Cancelled") {
+        const timePref = (a.time_preference || "").toUpperCase();
+        if (timePref.includes("AM") || timePref.includes("MORNING") || timePref.startsWith("7") || timePref.startsWith("8") || timePref.startsWith("9") || timePref.startsWith("10") || timePref.startsWith("11")) {
+          morningBooked++;
+        } else {
+          afternoonBooked++;
+        }
+      }
+    });
+
+    return {
+      maxMorning,
+      maxAfternoon,
+      morningBooked,
+      afternoonBooked,
+      morningPct: Math.min(100, Math.round((morningBooked / maxMorning) * 100)),
+      afternoonPct: Math.min(100, Math.round((afternoonBooked / maxAfternoon) * 100)),
+    };
+  }, [appointments, todayStr, clinicSettings]);
 
   // ── Tab counts ────────────────────────────────────────────────────────────
   const counts = useMemo(() => {
@@ -116,12 +165,16 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
   };
   const clearSelection = () => setSelected(new Set());
 
-  // ── Single action ─────────────────────────────────────────────────────────
+  // ── Single action with Staff Assignment ───────────────────────────────────
   const handleStatus = (id, status) => {
     startTransition(async () => {
       const fd = new FormData();
       fd.append("appointment_id", id);
       fd.append("status", status);
+      const staffId = assignedStaff[id];
+      if (staffId) {
+        fd.append("attending_staff_id", staffId);
+      }
       await updateAppointmentStatus(fd);
     });
   };
@@ -147,9 +200,9 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
       {/* ── Page Header ────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Appointments</h1>
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Appointments & Scheduling</h1>
           <p className="text-gray-500 mt-1">
-            Manage, approve, and track all patient appointment requests.
+            Manage patient requests, monitor shift capacities, and assign attending medical staff.
           </p>
         </div>
         <div className="flex items-center gap-2 text-sm font-medium text-gray-500 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
@@ -162,11 +215,71 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
         </div>
       </div>
 
+      {/* ── Daily Slot Capacity Banner ──────────────────────────────────── */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white border border-rose-100 rounded-3xl p-5 shadow-sm">
+        {/* Morning Shift */}
+        <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/60 to-rose-50/40 border border-amber-100/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+              🌅 Morning Shift (AM)
+            </span>
+            <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+              todayCapacity.morningBooked >= todayCapacity.maxMorning
+                ? "bg-red-100 text-red-700 font-black"
+                : "bg-white text-gray-700 shadow-xs"
+            }`}>
+              {todayCapacity.morningBooked} / {todayCapacity.maxMorning} Booked
+            </span>
+          </div>
+          <div className="w-full bg-white/80 h-2.5 rounded-full overflow-hidden border border-amber-100">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                todayCapacity.morningPct >= 100 ? "bg-red-500" : todayCapacity.morningPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+              }`}
+              style={{ width: `${todayCapacity.morningPct}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-gray-500">
+            {todayCapacity.maxMorning - todayCapacity.morningBooked <= 0 
+              ? "⚠️ Morning shift is at maximum capacity." 
+              : `${todayCapacity.maxMorning - todayCapacity.morningBooked} morning slots remaining for today.`}
+          </p>
+        </div>
+
+        {/* Afternoon Shift */}
+        <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-50/60 to-indigo-50/40 border border-blue-100/80 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black text-blue-800 uppercase tracking-wider flex items-center gap-1.5">
+              🌇 Afternoon Shift (PM)
+            </span>
+            <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
+              todayCapacity.afternoonBooked >= todayCapacity.maxAfternoon
+                ? "bg-red-100 text-red-700 font-black"
+                : "bg-white text-gray-700 shadow-xs"
+            }`}>
+              {todayCapacity.afternoonBooked} / {todayCapacity.maxAfternoon} Booked
+            </span>
+          </div>
+          <div className="w-full bg-white/80 h-2.5 rounded-full overflow-hidden border border-blue-100">
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${
+                todayCapacity.afternoonPct >= 100 ? "bg-red-500" : todayCapacity.afternoonPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+              }`}
+              style={{ width: `${todayCapacity.afternoonPct}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-gray-500">
+            {todayCapacity.maxAfternoon - todayCapacity.afternoonBooked <= 0 
+              ? "⚠️ Afternoon shift is at maximum capacity." 
+              : `${todayCapacity.maxAfternoon - todayCapacity.afternoonBooked} afternoon slots remaining for today.`}
+          </p>
+        </div>
+      </div>
+
       {/* ── Stat cards ─────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {["Pending", "Approved", "Completed", "Rejected"].map((s) => {
           const cfg = STATUS[s];
-          const Icon = cfg.icon;
           return (
             <button
               key={s}
@@ -265,7 +378,7 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
         </div>
 
         {/* ── Table header ──────────────────────────────────────────── */}
-        <div className="hidden md:grid grid-cols-[40px_1fr_160px_160px_130px_180px] items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider gap-3">
+        <div className="hidden lg:grid grid-cols-[40px_1fr_150px_140px_130px_220px] items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider gap-3">
           {/* Checkbox all */}
           <input
             type="checkbox"
@@ -275,7 +388,7 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
           />
           {/* Patient name */}
           <button onClick={() => toggleSort("patients")} className="flex items-center gap-1 hover:text-gray-700 transition-colors text-left">
-            Patient <SortIcon field="patients" sortField={sortField} sortDir={sortDir} />
+            Patient & Clinical Alerts <SortIcon field="patients" sortField={sortField} sortDir={sortDir} />
           </button>
           {/* Service */}
           <button onClick={() => toggleSort("service_type")} className="flex items-center gap-1 hover:text-gray-700 transition-colors">
@@ -283,12 +396,12 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
           </button>
           {/* Date */}
           <button onClick={() => toggleSort("appointment_date")} className="flex items-center gap-1 hover:text-gray-700 transition-colors">
-            Date <SortIcon field="appointment_date" sortField={sortField} sortDir={sortDir} />
+            Date & Shift <SortIcon field="appointment_date" sortField={sortField} sortDir={sortDir} />
           </button>
           {/* Status */}
           <span>Status</span>
-          {/* Actions */}
-          <span className="text-right">Actions</span>
+          {/* Actions & Staff Assignment */}
+          <span className="text-right">Staff & Action</span>
         </div>
 
         {/* ── Table rows ──────────────────────────────────────────────── */}
@@ -307,11 +420,12 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
               const patientName = appt.patients?.full_name || "Unknown Patient";
               const contact = appt.patients?.contact_number || "—";
               const isSelected = selected.has(appt.id);
+              const attendingStaffName = staffMap[appt.attending_staff_id];
 
               return (
                 <div
                   key={appt.id}
-                  className={`grid grid-cols-[40px_1fr] md:grid-cols-[40px_1fr_160px_160px_130px_180px] items-center px-5 py-4 gap-3 transition-colors ${
+                  className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1fr_150px_140px_130px_220px] items-center px-5 py-4 gap-3 transition-colors ${
                     isSelected ? "bg-rose-50/60" : "hover:bg-gray-50/60"
                   }`}
                 >
@@ -323,85 +437,116 @@ export function AppointmentsManager({ appointments, updateAppointmentStatus }) {
                     className="w-4 h-4 accent-rose-500 cursor-pointer"
                   />
 
-                  {/* Patient */}
+                  {/* Patient + High Risk / Allergy flags */}
                   <div className="flex items-center gap-3">
                     <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm">
                       {initials(patientName)}
                     </div>
                     <div className="min-w-0">
-                      <p className="font-bold text-gray-900 text-sm truncate">{patientName}</p>
-                      <p className="text-xs text-gray-400 truncate">{contact}</p>
-                      {/* Mobile: show extras inline */}
-                      <div className="flex flex-wrap gap-1.5 mt-1 md:hidden">
-                        <span className="text-xs px-2 py-0.5 bg-gray-100 text-gray-600 rounded-lg font-medium">
-                          {SERVICE_LABELS[appt.service_type] || appt.service_type}
-                        </span>
-                        <span className="text-xs px-2 py-0.5 bg-rose-50 text-rose-700 rounded-lg font-semibold">
-                          {appt.appointment_date}
-                        </span>
-                        <span className={`text-xs px-2 py-0.5 rounded-lg border font-bold ${cfg.badge}`}>
-                          {appt.status}
-                        </span>
+                      <div className="flex items-center gap-2">
+                        <p className="font-bold text-gray-900 text-sm truncate">{patientName}</p>
+                        {appt.patients?.is_high_risk && (
+                          <span className="bg-red-100 text-red-700 text-[10px] font-black px-1.5 py-0.2 rounded border border-red-200">
+                            HIGH RISK
+                          </span>
+                        )}
+                        {appt.patients?.allergies && (
+                          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.2 rounded" title={`Allergies: ${appt.patients.allergies}`}>
+                            ALLERGIC
+                          </span>
+                        )}
                       </div>
+                      <p className="text-xs text-gray-400 truncate">{contact}</p>
+                      {appt.notes && (
+                        <p className="text-xs text-gray-500 italic truncate mt-0.5 max-w-xs">"{appt.notes}"</p>
+                      )}
                     </div>
                   </div>
 
                   {/* Service — desktop */}
-                  <p className="hidden md:block text-sm text-gray-600 font-medium">
+                  <p className="hidden lg:block text-xs font-bold text-gray-700">
                     {SERVICE_LABELS[appt.service_type] || appt.service_type}
                   </p>
 
                   {/* Date — desktop */}
-                  <div className="hidden md:block">
-                    <p className="text-sm font-bold text-gray-800">{appt.appointment_date}</p>
+                  <div className="hidden lg:block">
+                    <p className="text-xs font-bold text-gray-800">{appt.appointment_date}</p>
                     {appt.time_preference && (
-                      <p className="text-xs text-gray-400 mt-0.5">{appt.time_preference}</p>
+                      <span className="text-[11px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md mt-0.5 inline-block">
+                        {appt.time_preference}
+                      </span>
                     )}
                   </div>
 
                   {/* Status badge — desktop */}
-                  <div className="hidden md:flex items-center">
+                  <div className="hidden lg:flex items-center">
                     <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold ${cfg.badge}`}>
                       <Icon className="w-3 h-3" />
                       {appt.status}
                     </span>
                   </div>
 
-                  {/* Actions — desktop */}
-                  <div className="hidden md:flex items-center justify-end gap-2">
+                  {/* Actions & Staff Assignment — desktop */}
+                  <div className="hidden lg:flex flex-col items-end gap-1.5 justify-center">
                     {appt.status === "Pending" && (
-                      <>
+                      <div className="flex items-center gap-1.5">
+                        {staffUsers.length > 0 && (
+                          <select
+                            value={assignedStaff[appt.id] || ""}
+                            onChange={(e) => setAssignedStaff((prev) => ({ ...prev, [appt.id]: e.target.value }))}
+                            className="h-8 rounded-lg border border-gray-200 bg-white text-[11px] font-medium px-2 focus:ring-1 focus:ring-emerald-500 outline-none max-w-[110px] truncate"
+                          >
+                            <option value="">Assign Staff...</option>
+                            {staffUsers.map((u) => (
+                              <option key={u.id} value={u.id}>
+                                {staffMap[u.id] || u.email}
+                              </option>
+                            ))}
+                          </select>
+                        )}
                         <Button
                           size="sm"
                           onClick={() => handleStatus(appt.id, "Approved")}
                           disabled={isPending}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl h-8 px-3 text-xs font-bold shadow-sm"
+                          className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg h-8 px-2.5 text-xs font-bold shadow-sm"
                         >
                           Approve
                         </Button>
                         <Button
                           size="sm"
-                          variant="outline"
+                          variant="ghost"
                           onClick={() => handleStatus(appt.id, "Rejected")}
                           disabled={isPending}
-                          className="border-red-200 text-red-600 hover:bg-red-50 hover:border-red-400 rounded-xl h-8 px-3 text-xs font-bold"
+                          className="text-red-500 hover:bg-red-50 rounded-lg h-8 px-2 text-xs"
                         >
                           Reject
                         </Button>
-                      </>
+                      </div>
                     )}
+
                     {appt.status === "Approved" && (
-                      <Button
-                        size="sm"
-                        onClick={() => handleStatus(appt.id, "Completed")}
-                        disabled={isPending}
-                        className="bg-blue-500 hover:bg-blue-600 text-white rounded-xl h-8 px-3 text-xs font-bold shadow-sm"
-                      >
-                        Mark Complete
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {attendingStaffName && (
+                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                            <UserCheck className="w-3 h-3" /> {attendingStaffName}
+                          </span>
+                        )}
+                        <Button
+                          size="sm"
+                          onClick={() => handleStatus(appt.id, "Completed")}
+                          disabled={isPending}
+                          className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg h-8 px-3 text-xs font-bold shadow-sm"
+                        >
+                          Complete
+                        </Button>
+                      </div>
                     )}
+
                     {(appt.status === "Completed" || appt.status === "Rejected") && (
-                      <span className="text-xs text-gray-300 font-medium italic">—</span>
+                      <div className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
+                        {attendingStaffName && <span>Staff: {attendingStaffName}</span>}
+                        {!attendingStaffName && <span className="italic">—</span>}
+                      </div>
                     )}
                   </div>
                 </div>

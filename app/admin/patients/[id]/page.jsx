@@ -14,11 +14,12 @@ import {
 } from '../../../actions';
 import {
   Plus, Trash2, FileUp, FileIcon,
-  ImageIcon, ExternalLink, AlertCircle
+  ImageIcon, ExternalLink, AlertTriangle, ShieldAlert
 } from 'lucide-react';
 import { ModularRecordEditor } from '@/components/admin/modular-record-editor';
 import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
 import { VisitLogCard } from '@/components/admin/visit-log-card';
+import { MaternalEpisodesSection } from '@/components/admin/maternal-episodes-section';
 import { ConsultationThread } from '@/components/shared/consultation-thread';
 
 export default async function PatientDetailPage({ params }) {
@@ -33,7 +34,9 @@ export default async function PatientDetailPage({ params }) {
     { data: visitLogs },
     { data: consultationMessages },
     { data: attachments },
-    { data: { user: staffUser } }
+    { data: { user: staffUser } },
+    { data: maternalEpisodes },
+    { data: staffUsersList }
   ] = await Promise.all([
     supabase.from('patients').select('*').eq('id', id).single(),
     supabase.from('birth_plans').select('*').eq('patient_id', id).single(),
@@ -41,7 +44,9 @@ export default async function PatientDetailPage({ params }) {
     supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
     supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
     supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
-    supabase.auth.getUser()
+    supabase.auth.getUser(),
+    supabase.from('maternal_episodes').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
+    supabase.from('users').select('id, email, role')
   ]);
 
   if (!patient) {
@@ -52,45 +57,56 @@ export default async function PatientDetailPage({ params }) {
     );
   }
 
-  // Compute gestational age and EDC from LMP
-  let gestationalAge = null;
-  let edcDisplay = null;
-  if (patient.lmp) {
-    const lmpDate = new Date(patient.lmp);
-    const diffDays = Math.floor((Date.now() - lmpDate.getTime()) / (1000 * 60 * 60 * 24));
-    const weeks = Math.floor(diffDays / 7);
-    const days = diffDays % 7;
-    gestationalAge = `${weeks}w + ${days}d`;
-    edcDisplay = new Date(lmpDate.getTime() + 280 * 24 * 60 * 60 * 1000)
-      .toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
-  }
+  // Create staff name map
+  const staffMap = {};
+  staffUsersList?.forEach(u => {
+    staffMap[u.id] = u.email ? u.email.split('@')[0] : `Staff (${u.id.slice(0, 6)})`;
+  });
+
+  const activeEpisode = maternalEpisodes?.find(e => e.status === 'Active') || maternalEpisodes?.[0] || null;
 
   return (
     <div className="max-w-5xl">
       {/* Patient Header */}
-      <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-900 tracking-tight">{patient.full_name || 'Anonymous Patient'}</h2>
-        <div className="flex flex-wrap items-center gap-3 mt-2">
-          <span className="text-sm text-gray-500 font-medium">
-            ID: <span className="font-mono bg-gray-100 px-1 rounded">{id.split('-')[0]}</span>
-          </span>
-          {patient.age && <><span className="text-gray-300 text-sm">•</span><span className="text-sm text-gray-500">Age: {patient.age}</span></>}
-          {patient.contact_number && <><span className="text-gray-300 text-sm">•</span><span className="text-sm text-gray-500">{patient.contact_number}</span></>}
-          {patient.blood_type && (
-            <span className="bg-rose-100 text-rose-700 font-bold text-xs px-2 py-0.5 rounded-full">{patient.blood_type}</span>
+      <div className="mb-6 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h2 className="text-3xl font-bold text-gray-900 tracking-tight">{patient.full_name || 'Anonymous Patient'}</h2>
+            <div className="flex flex-wrap items-center gap-3 mt-2">
+              <span className="text-sm text-gray-500 font-medium">
+                ID: <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-xs">{id.split('-')[0]}</span>
+              </span>
+              {patient.age && <><span className="text-gray-300 text-sm">•</span><span className="text-sm text-gray-500">Age: {patient.age}</span></>}
+              {patient.contact_number && <><span className="text-gray-300 text-sm">•</span><span className="text-sm text-gray-500">{patient.contact_number}</span></>}
+              {patient.blood_type && (
+                <span className="bg-rose-100 text-rose-700 font-black text-xs px-2.5 py-0.5 rounded-full border border-rose-200">
+                  Blood: {patient.blood_type}
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Prominent Clinical Alerts in Header */}
+        <div className="flex flex-wrap gap-2.5 pt-1">
+          {patient.is_high_risk && (
+            <div className="bg-red-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm shadow-red-200 animate-pulse">
+              <ShieldAlert className="w-4 h-4" />
+              <span>HIGH RISK PREGNANCY</span>
+            </div>
           )}
-          {gestationalAge && (
-            <span className="bg-violet-100 text-violet-700 font-bold text-xs px-2.5 py-1 rounded-full">
-              🤰 {gestationalAge}
-            </span>
-          )}
-          {edcDisplay && (
-            <span className="bg-emerald-100 text-emerald-700 font-bold text-xs px-2.5 py-1 rounded-full">
-              EDC: {edcDisplay}
-            </span>
+
+          {patient.allergies && (
+            <div className="bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm">
+              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
+              <span>Allergies: {patient.allergies}</span>
+            </div>
           )}
         </div>
       </div>
+
+      {/* Maternal Episode Management (Multiple Pregnancies) */}
+      <MaternalEpisodesSection patientId={id} episodes={maternalEpisodes || []} />
 
       <Tabs defaultValue="profile" className="w-full">
         <TabsList className="bg-white p-1 rounded-xl border border-gray-100 shadow-sm mb-6 flex flex-wrap h-auto gap-1">
@@ -119,15 +135,23 @@ export default async function PatientDetailPage({ params }) {
           <Card className="border-none shadow-md">
             <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
               <CardTitle>Clinical Visit Logs</CardTitle>
-              <CardDescription>Track all routine prenatal check-ups and vitals for this patient.</CardDescription>
+              <CardDescription>Track all routine prenatal check-ups, vital metrics, and attending clinician notes.</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
               {/* New Visit Form */}
-              <form action={addVisitLog} className="mb-8 p-5 bg-rose-50/30 rounded-lg border border-rose-100 shadow-sm space-y-5">
+              <form action={addVisitLog} className="mb-8 p-5 bg-rose-50/30 rounded-2xl border border-rose-100 shadow-sm space-y-5">
                 <div className="flex items-center justify-between border-b border-rose-100 pb-3">
                   <h3 className="text-base font-bold text-rose-700">Log New Visit</h3>
+                  {activeEpisode && (
+                    <span className="text-xs font-semibold text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
+                      Tied to: {activeEpisode.lmp ? `LMP ${new Date(activeEpisode.lmp).toLocaleDateString()}` : 'Active Episode'}
+                    </span>
+                  )}
                 </div>
                 <input type="hidden" name="patient_id" value={id} />
+                {activeEpisode?.id && (
+                  <input type="hidden" name="maternal_episode_id" value={activeEpisode.id} />
+                )}
 
                 {/* Row 1 */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -207,7 +231,12 @@ export default async function PatientDetailPage({ params }) {
               <div className="space-y-4">
                 <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Past Records</h4>
                 {visitLogs && visitLogs.length > 0 ? visitLogs.map((log) => (
-                  <VisitLogCard key={log.id} log={log} patientId={id} />
+                  <VisitLogCard 
+                    key={log.id} 
+                    log={log} 
+                    patientId={id} 
+                    staffName={staffMap[log.attending_staff_id]}
+                  />
                 )) : (
                   <div className="py-8 text-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
                     <p className="text-sm text-gray-500">No visit logs recorded yet.</p>

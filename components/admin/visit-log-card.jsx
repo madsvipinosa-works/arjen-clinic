@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { updateVisitLog, deleteVisitLog } from '@/app/actions';
 
-export function VisitLogCard({ log, patientId }) {
+export function VisitLogCard({ log, patientId, staffName }) {
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
 
@@ -33,6 +33,9 @@ export function VisitLogCard({ log, patientId }) {
       >
         <input type="hidden" name="id" value={log.id} />
         <input type="hidden" name="patient_id" value={patientId} />
+        {log.maternal_episode_id && (
+          <input type="hidden" name="maternal_episode_id" value={log.maternal_episode_id} />
+        )}
         
         {/* Edit Row 1 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -186,6 +189,17 @@ export function VisitLogCard({ log, patientId }) {
       <div>
         <p className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">Observations & Notes</p>
         <p className="text-sm text-gray-800 leading-relaxed">{log.doctor_notes}</p>
+      </div>
+
+      {/* Staff Attribution Footer */}
+      <div className="flex items-center justify-between pt-3 border-t border-gray-50 text-[11px]">
+        <div className="flex items-center gap-1.5 text-gray-500 font-medium">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          <span>Recorded by:</span>
+          <span className="font-bold text-gray-700">
+            {staffName || (log.attending_staff_id ? `Staff (${log.attending_staff_id.split('-')[0]})` : 'Clinic Staff')}
+          </span>
+        </div>
       </div>
     </div>
   );
