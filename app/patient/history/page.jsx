@@ -3,89 +3,152 @@ import { format } from "date-fns";
 import { 
   ClipboardList, 
   Activity, 
-  Thermometer, 
   Scale, 
-  Search,
-  ChevronRight
+  Baby,
+  Calendar
 } from "lucide-react";
+import { PatientSwitcher } from "@/components/patient/patient-switcher";
+import { EmptyState } from "@/components/ui/empty-state";
 
-export default async function PatientHistoryPage() {
+export default async function PatientHistoryPage({ searchParams }) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
   if (!user) return null;
 
-  const { data: visitLogs } = await supabase
-    .from("visit_logs")
-    .select("*")
-    .eq("patient_id", user.id)
-    .order("visit_date", { ascending: false });
+  const resolvedSearchParams = await searchParams;
+  const requestedPatientId = resolvedSearchParams?.patientId;
+
+  // Query patients managed by this user account
+  const { data: patients } = await supabase
+    .from("patients")
+    .select("id, full_name, is_high_risk, blood_type")
+    .eq("account_id", user.id)
+    .order("created_at", { ascending: true });
+
+  const activePatient = (requestedPatientId ? patients?.find(p => p.id === requestedPatientId) : null) || patients?.[0];
+  const patientId = activePatient?.id || user.id;
+
+  // Fetch visit logs and maternal episodes
+  const [
+    { data: visitLogs },
+    { data: maternalEpisodes }
+  ] = await Promise.all([
+    supabase
+      .from("visit_logs")
+      .select("*")
+      .eq("patient_id", patientId)
+      .order("visit_date", { ascending: false }),
+    supabase
+      .from("maternal_episodes")
+      .select("*")
+      .eq("patient_id", patientId)
+      .order("created_at", { ascending: false })
+  ]);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-card border border-border p-6 sm:p-8 rounded-3xl shadow-sm">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-rose-500 rounded-xl flex items-center justify-center shadow-lg shadow-rose-200">
-              <ClipboardList className="w-5 h-5 text-white" />
+            <div className="w-10 h-10 bg-primary text-primary-foreground rounded-xl flex items-center justify-center shadow-md shadow-primary/20">
+              <ClipboardList className="w-5 h-5" />
             </div>
-            <h1 className="text-3xl font-black text-gray-900 tracking-tight">Medical History</h1>
+            <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">Medical History</h1>
           </div>
-          <p className="text-gray-500 font-medium">Your complete record of clinic visits and clinical observations.</p>
+          <p className="text-muted-foreground text-xs sm:text-sm font-medium">
+            Complete timeline of clinic visits, vital signs, and midwife observations.
+          </p>
+          {patients && patients.length > 0 && (
+            <div className="pt-2">
+              <PatientSwitcher patients={patients} activePatientId={activePatient?.id} />
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Maternal Episodes Summary Header if available */}
+      {maternalEpisodes && maternalEpisodes.length > 0 && (
+        <div className="bg-secondary/40 border border-secondary rounded-3xl p-6">
+          <div className="flex items-center gap-2 mb-3">
+            <Baby className="w-4 h-4 text-primary" />
+            <h3 className="text-xs font-black uppercase tracking-wider text-foreground">Recorded Pregnancy Episodes</h3>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {maternalEpisodes.map((ep, idx) => (
+              <div key={ep.id} className="p-3.5 bg-card border border-border rounded-2xl space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-black uppercase tracking-wider text-primary">
+                    {ep.status === 'Active' ? 'Active Episode' : 'Past Episode'}
+                  </span>
+                  <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${ep.status === 'Active' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'}`}>
+                    {ep.status}
+                  </span>
+                </div>
+                <p className="text-xs font-bold text-foreground">
+                  {ep.lmp ? `LMP: ${format(new Date(ep.lmp), "MMM d, yyyy")}` : `Episode #${maternalEpisodes.length - idx}`}
+                </p>
+                {ep.edc && (
+                  <p className="text-[11px] text-muted-foreground">
+                    EDC: {format(new Date(ep.edc), "MMM d, yyyy")}
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Timeline of Visits */}
       <div className="relative">
         {/* Central Line */}
-        <div className="absolute left-[30px] top-0 bottom-0 w-0.5 bg-rose-100 hidden md:block" />
+        <div className="absolute left-[30px] top-0 bottom-0 w-0.5 bg-border hidden md:block" />
 
-        <div className="space-y-12">
-          {visitLogs?.length > 0 ? (
-            visitLogs.map((log, index) => (
+        <div className="space-y-8">
+          {visitLogs && visitLogs.length > 0 ? (
+            visitLogs.map((log) => (
               <div key={log.id} className="relative md:pl-20 group">
                 {/* Timeline Dot */}
-                <div className="absolute left-0 md:left-[21px] top-0 w-5 h-5 rounded-full bg-white border-4 border-rose-500 group-hover:scale-125 transition-transform z-10 shadow-sm" />
+                <div className="absolute left-0 md:left-[21px] top-0 w-5 h-5 rounded-full bg-card border-4 border-primary group-hover:scale-125 transition-transform z-10 shadow-sm" />
                 
-                <div className="bg-white rounded-[2rem] border border-rose-100 shadow-sm overflow-hidden transition-all group-hover:shadow-md group-hover:border-rose-200">
+                <div className="bg-card rounded-3xl border border-border shadow-sm overflow-hidden transition-all group-hover:shadow-md">
                   <div className="flex flex-col lg:flex-row">
                     {/* Log Date Side Box */}
-                    <div className="lg:w-48 bg-rose-50/50 p-6 flex flex-col justify-center items-center text-center border-b lg:border-b-0 lg:border-r border-rose-100/50">
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-400 mb-1">
+                    <div className="lg:w-48 bg-muted/40 p-6 flex flex-col justify-center items-center text-center border-b lg:border-b-0 lg:border-r border-border">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-1">
                         {format(new Date(log.visit_date), "yyyy")}
                       </p>
-                      <p className="text-2xl font-black text-gray-900 leading-none">
+                      <p className="text-2xl font-black text-foreground leading-none">
                         {format(new Date(log.visit_date), "MMM d")}
                       </p>
                     </div>
 
                     {/* Log Content */}
-                    <div className="flex-1 p-6 md:p-8 space-y-6">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
-                          <Activity className="w-5 h-5 text-rose-500" />
+                    <div className="flex-1 p-6 md:p-8 space-y-5">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="bg-muted/50 rounded-2xl p-3.5 border border-border flex items-center gap-3">
+                          <Activity className="w-4 h-4 text-primary shrink-0" />
                           <div>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Blood Pressure</p>
-                            <p className="text-sm font-black text-gray-900">{log.bp}</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Blood Pressure</p>
+                            <p className="text-xs sm:text-sm font-black text-foreground">{log.bp || "N/A"}</p>
                           </div>
                         </div>
-                        <div className="bg-gray-50 rounded-2xl p-4 border border-gray-100 flex items-center gap-3">
-                          <Scale className="w-5 h-5 text-blue-500" />
+                        <div className="bg-muted/50 rounded-2xl p-3.5 border border-border flex items-center gap-3">
+                          <Scale className="w-4 h-4 text-primary shrink-0" />
                           <div>
-                            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Weight</p>
-                            <p className="text-sm font-black text-gray-900">{log.weight}</p>
+                            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Weight</p>
+                            <p className="text-xs sm:text-sm font-black text-foreground">{log.weight || "N/A"}</p>
                           </div>
                         </div>
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="flex items-center gap-2">
-                           <div className="h-0.5 w-6 bg-rose-200 rounded-full" />
-                           <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.2em]">Doctor's Observations</h4>
-                        </div>
-                        <p className="text-gray-600 leading-relaxed font-medium">
-                          {log.doctor_notes}
+                      <div className="space-y-2">
+                        <h4 className="text-[10px] font-black text-primary uppercase tracking-widest">
+                          Clinical Observations
+                        </h4>
+                        <p className="text-foreground/90 text-xs sm:text-sm leading-relaxed font-medium">
+                          {log.doctor_notes || "Routine checkup completed."}
                         </p>
                       </div>
                     </div>
@@ -94,22 +157,14 @@ export default async function PatientHistoryPage() {
               </div>
             ))
           ) : (
-            <div className="bg-white rounded-[2.5rem] border-4 border-dashed border-gray-100 p-20 text-center">
-              <ClipboardList className="w-16 h-16 text-gray-100 mx-auto mb-6" />
-              <h3 className="text-2xl font-black text-gray-900">No records found</h3>
-              <p className="text-gray-400 font-medium max-w-sm mx-auto mt-4">
-                Your medical history will be automatically updated here after your clinic visits. 
-              </p>
-            </div>
+            <EmptyState
+              variant="dashed"
+              icon={ClipboardList}
+              title="No medical records yet"
+              description="Clinical observations and vital measurements will be automatically logged here after each clinic appointment."
+            />
           )}
         </div>
-      </div>
-
-      {/* Footer Info */}
-      <div className="pt-10 flex items-center justify-center gap-6 opacity-30">
-        <div className="h-px flex-1 bg-gray-200" />
-        <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">End of Record</span>
-        <div className="h-px flex-1 bg-gray-200" />
       </div>
     </div>
   );
