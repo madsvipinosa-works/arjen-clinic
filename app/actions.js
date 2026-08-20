@@ -324,6 +324,52 @@ export async function updateAppointmentStatus(formData) {
 }
 
 /**
+ * updateTriageStatus(appointmentId, newStatus)
+ * PURPOSE : Update the intra-day triage status of an appointment (Waiting, Vital Signs, Consultation, Discharged)
+ */
+export async function updateTriageStatus(appointmentId, newStatus) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  let apptId = appointmentId;
+  let status = newStatus;
+  if (appointmentId instanceof FormData) {
+    apptId = appointmentId.get('appointment_id');
+    status = appointmentId.get('triage_status');
+  }
+
+  if (!apptId || !status) {
+    return { success: false, error: 'Appointment ID and triage status are required.' };
+  }
+
+  const validStatuses = ['Waiting', 'Vital Signs', 'Consultation', 'Discharged'];
+  if (!validStatuses.includes(status)) {
+    return { success: false, error: `Invalid triage status: ${status}` };
+  }
+
+  const supabaseServer = await createClient();
+  const updatePayload = { triage_status: status };
+  
+  // Smart Dual-State Sync: Discharging a patient automatically completes the appointment
+  if (status === 'Discharged') {
+    updatePayload.status = 'Completed';
+  }
+
+  const { error } = await supabaseServer
+    .from('appointments')
+    .update(updatePayload)
+    .eq('id', apptId);
+
+  if (error) {
+    console.error('[updateTriageStatus] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/appointments');
+  return { success: true };
+}
+
+/**
  * addVisitLog(formData)
  */
 export async function addVisitLog(formData) {

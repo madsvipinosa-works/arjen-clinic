@@ -1,9 +1,10 @@
 import { createClient } from "@/utils/supabase/server";
-import { updateAppointmentStatus } from "../../actions";
+import { updateAppointmentStatus, updateTriageStatus } from "../../actions";
 import { AppointmentsManager } from "@/components/admin/appointments-manager";
 
 export default async function AppointmentsPage() {
   const supabase = await createClient();
+  const todayStr = new Date().toISOString().split("T")[0];
 
   const [
     { data: appointments },
@@ -19,6 +20,7 @@ export default async function AppointmentsPage() {
         time_preference,
         notes,
         status,
+        triage_status,
         attending_staff_id,
         created_at,
         patients (
@@ -29,6 +31,7 @@ export default async function AppointmentsPage() {
           allergies
         )
       `)
+      .gte("appointment_date", todayStr)
       .order("appointment_date", { ascending: true }),
     supabase
       .from("users")
@@ -47,6 +50,7 @@ export default async function AppointmentsPage() {
       staffUsers={staffUsers || []}
       clinicSettings={settings || { max_morning_slots: 10, max_afternoon_slots: 10 }}
       updateAppointmentStatus={updateAppointmentStatus}
+      updateTriageStatus={updateTriageStatus}
     />
   );
 }

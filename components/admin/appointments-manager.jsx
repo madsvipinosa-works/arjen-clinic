@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useTransition, useEffect } from "react";
 import {
   Search,
   CalendarDays,
@@ -17,8 +17,13 @@ import {
   UserCheck,
   ShieldAlert,
   AlertTriangle,
+  LayoutList,
+  Columns3,
+  Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { KanbanBoard } from "@/components/admin/kanban-board";
+import { createClient } from "@/utils/supabase/client";
 
 // ── Status config ──────────────────────────────────────────────────────────────
 const STATUS = {
@@ -57,8 +62,11 @@ export function AppointmentsManager({
   appointments = [], 
   staffUsers = [],
   clinicSettings = { max_morning_slots: 10, max_afternoon_slots: 10 },
-  updateAppointmentStatus 
+  updateAppointmentStatus,
+  updateTriageStatus
 }) {
+  const [appointmentsList, setAppointmentsList] = useState(appointments);
+  const [viewMode, setViewMode] = useState("kanban"); // Default to "kanban" for live ops!
   const [isPending, startTransition] = useTransition();
   const [activeTab,  setActiveTab]  = useState("Pending");
   const [search,     setSearch]     = useState("");
@@ -69,6 +77,85 @@ export function AppointmentsManager({
   const [assignedStaff, setAssignedStaff] = useState({}); // { [apptId]: staffId }
 
   const todayStr = new Date().toISOString().split("T")[0];
+
+  // ── Sync with props ────────────────────────────────────────────────────────
+  useEffect(() => {
+    setAppointmentsList(appointments);
+  }, [appointments]);
+
+  // ── Supabase Real-time Subscription ─────────────────────────────────────────
+  useEffect(() => {
+    const supabase = createClient();
+
+    const channel = supabase
+      .channel("live-appointments-triage-sync")
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "appointments" },
+        (payload) => {
+          setAppointmentsList((prevList) =>
+            prevList.map((appt) => {
+              if (appt.id === payload.new.id) {
+                return {
+                  ...appt,
+                  ...payload.new,
+                  // Retain relation object if not present in new payload
+                  patients: appt.patients,
+                };
+              }
+              return appt;
+            })
+          );
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "appointments" },
+        (payload) => {
+          // If a new appointment is submitted in real-time, add to state if not exists
+          setAppointmentsList((prevList) => {
+            if (prevList.some((a) => a.id === payload.new.id)) return prevList;
+            return [payload.new, ...prevList];
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  // ── Optimistic Triage Status Handler ───────────────────────────────────────
+  const handleUpdateTriageStatus = async (appointmentId, newStatus) => {
+    const previousList = appointmentsList;
+    // Optimistic Update: If discharged, mark status as Completed
+    setAppointmentsList((prev) =>
+      prev.map((a) => {
+        if (a.id === appointmentId) {
+          return {
+            ...a,
+            triage_status: newStatus,
+            ...(newStatus === "Discharged" ? { status: "Completed" } : {}),
+          };
+        }
+        return a;
+      })
+    );
+
+    if (updateTriageStatus) {
+      try {
+        const res = await updateTriageStatus(appointmentId, newStatus);
+        if (res && res.error) {
+          console.error("Failed to update triage status:", res.error);
+          setAppointmentsList(previousList);
+        }
+      } catch (err) {
+        console.error("Error updating triage status:", err);
+        setAppointmentsList(previousList);
+      }
+    }
+  };
 
   // ── Staff Map ─────────────────────────────────────────────────────────────
   const staffMap = useMemo(() => {
@@ -87,7 +174,7 @@ export function AppointmentsManager({
     let morningBooked = 0;
     let afternoonBooked = 0;
 
-    appointments.forEach((a) => {
+    appointmentsList.forEach((a) => {
       if (a.appointment_date === todayStr && a.status !== "Rejected" && a.status !== "Cancelled") {
         const timePref = (a.time_preference || "").toUpperCase();
         if (timePref.includes("AM") || timePref.includes("MORNING") || timePref.startsWith("7") || timePref.startsWith("8") || timePref.startsWith("9") || timePref.startsWith("10") || timePref.startsWith("11")) {
@@ -106,18 +193,18 @@ export function AppointmentsManager({
       morningPct: Math.min(100, Math.round((morningBooked / maxMorning) * 100)),
       afternoonPct: Math.min(100, Math.round((afternoonBooked / maxAfternoon) * 100)),
     };
-  }, [appointments, todayStr, clinicSettings]);
+  }, [appointmentsList, todayStr, clinicSettings]);
 
   // ── Tab counts ────────────────────────────────────────────────────────────
   const counts = useMemo(() => {
-    const c = { All: appointments.length, Pending: 0, Approved: 0, Completed: 0, Rejected: 0 };
-    appointments.forEach((a) => { if (c[a.status] !== undefined) c[a.status]++; });
+    const c = { All: appointmentsList.length, Pending: 0, Approved: 0, Completed: 0, Rejected: 0 };
+    appointmentsList.forEach((a) => { if (c[a.status] !== undefined) c[a.status]++; });
     return c;
-  }, [appointments]);
+  }, [appointmentsList]);
 
   // ── Filter + Search + Sort ────────────────────────────────────────────────
   const visible = useMemo(() => {
-    let rows = appointments;
+    let rows = appointmentsList;
     if (activeTab !== "All") rows = rows.filter((a) => a.status === activeTab);
     if (search.trim()) {
       const q = search.toLowerCase();
@@ -140,7 +227,7 @@ export function AppointmentsManager({
         : String(vb).localeCompare(String(va));
     });
     return rows;
-  }, [appointments, activeTab, search, sortField, sortDir]);
+  }, [appointmentsList, activeTab, search, sortField, sortDir]);
 
   // ── Sort toggle ───────────────────────────────────────────────────────────
   const toggleSort = (field) => {
@@ -175,21 +262,25 @@ export function AppointmentsManager({
       if (staffId) {
         fd.append("attending_staff_id", staffId);
       }
-      await updateAppointmentStatus(fd);
+      if (updateAppointmentStatus) {
+        await updateAppointmentStatus(fd);
+      }
     });
   };
 
   // ── Bulk action ───────────────────────────────────────────────────────────
   const handleBulk = () => {
     startTransition(async () => {
-      await Promise.all(
-        [...selected].map((id) => {
-          const fd = new FormData();
-          fd.append("appointment_id", id);
-          fd.append("status", bulkStatus);
-          return updateAppointmentStatus(fd);
-        })
-      );
+      if (updateAppointmentStatus) {
+        await Promise.all(
+          [...selected].map((id) => {
+            const fd = new FormData();
+            fd.append("appointment_id", id);
+            fd.append("status", bulkStatus);
+            return updateAppointmentStatus(fd);
+          })
+        );
+      }
       clearSelection();
     });
   };
@@ -197,49 +288,89 @@ export function AppointmentsManager({
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-300">
 
-      {/* ── Page Header ────────────────────────────────────────────────── */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* ── Page Header & View Mode Switcher ────────────────────────────── */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Appointments & Scheduling</h1>
-          <p className="text-gray-500 mt-1">
-            Manage patient requests, monitor shift capacities, and assign attending medical staff.
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-[10px] font-black uppercase tracking-widest text-primary bg-primary/10 px-2.5 py-0.5 rounded-full">
+              Clinic Operations
+            </span>
+            <span className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+              <Sparkles className="w-3.5 h-3.5 text-primary" /> Real-time Queue
+            </span>
+          </div>
+          <h1 className="text-3xl font-black text-foreground tracking-tight">Appointments & Triage</h1>
+          <p className="text-sm text-muted-foreground font-medium mt-0.5">
+            Manage clinic flow, live patient triage, and attending medical staff assignments.
           </p>
         </div>
-        <div className="flex items-center gap-2 text-sm font-medium text-gray-500 bg-white px-4 py-2 rounded-xl border border-gray-100 shadow-sm">
-          <CalendarDays className="w-4 h-4 text-rose-500" />
-          <span>
-            {new Date().toLocaleDateString("en-PH", {
-              weekday: "long", year: "numeric", month: "long", day: "numeric",
-            })}
-          </span>
+
+        <div className="flex flex-wrap items-center gap-3">
+          {/* View Mode Toggle */}
+          <div className="bg-muted/70 p-1 rounded-2xl border border-border flex items-center shadow-xs">
+            <button
+              type="button"
+              onClick={() => setViewMode("kanban")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                viewMode === "kanban"
+                  ? "bg-card text-foreground shadow-sm font-black text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <Columns3 className="w-4 h-4" />
+              <span>Live Kanban Triage</span>
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("table")}
+              className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                viewMode === "table"
+                  ? "bg-card text-foreground shadow-sm font-black text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <LayoutList className="w-4 h-4" />
+              <span>Table List View</span>
+            </button>
+          </div>
+
+          <div className="hidden sm:flex items-center gap-2 text-xs font-bold text-muted-foreground bg-card px-4 py-2 rounded-2xl border border-border shadow-xs">
+            <CalendarDays className="w-4 h-4 text-primary" />
+            <span>
+              {new Date().toLocaleDateString("en-PH", {
+                weekday: "short", year: "numeric", month: "short", day: "numeric",
+              })}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* ── Daily Slot Capacity Banner ──────────────────────────────────── */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-white border border-rose-100 rounded-3xl p-5 shadow-sm">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-card border border-border rounded-3xl p-5 shadow-xs">
         {/* Morning Shift */}
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-amber-50/60 to-rose-50/40 border border-amber-100/80 space-y-2">
+        <div className="p-4 rounded-2xl bg-secondary/30 border border-border/70 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-amber-800 uppercase tracking-wider flex items-center gap-1.5">
+            <span className="text-xs font-black text-foreground uppercase tracking-wider flex items-center gap-1.5">
               🌅 Morning Shift (AM)
             </span>
             <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
               todayCapacity.morningBooked >= todayCapacity.maxMorning
-                ? "bg-red-100 text-red-700 font-black"
-                : "bg-white text-gray-700 shadow-xs"
+                ? "bg-destructive/10 text-destructive font-black border border-destructive/20"
+                : "bg-card text-foreground border border-border shadow-xs"
             }`}>
               {todayCapacity.morningBooked} / {todayCapacity.maxMorning} Booked
             </span>
           </div>
-          <div className="w-full bg-white/80 h-2.5 rounded-full overflow-hidden border border-amber-100">
+          <div className="w-full bg-muted h-2.5 rounded-full overflow-hidden border border-border">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
-                todayCapacity.morningPct >= 100 ? "bg-red-500" : todayCapacity.morningPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+                todayCapacity.morningPct >= 100 ? "bg-destructive" : todayCapacity.morningPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
               }`}
               style={{ width: `${todayCapacity.morningPct}%` }}
             />
           </div>
-          <p className="text-[11px] text-gray-500">
+          <p className="text-[11px] text-muted-foreground font-medium">
             {todayCapacity.maxMorning - todayCapacity.morningBooked <= 0 
               ? "⚠️ Morning shift is at maximum capacity." 
               : `${todayCapacity.maxMorning - todayCapacity.morningBooked} morning slots remaining for today.`}
@@ -247,28 +378,28 @@ export function AppointmentsManager({
         </div>
 
         {/* Afternoon Shift */}
-        <div className="p-4 rounded-2xl bg-gradient-to-br from-blue-50/60 to-indigo-50/40 border border-blue-100/80 space-y-2">
+        <div className="p-4 rounded-2xl bg-secondary/30 border border-border/70 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-black text-blue-800 uppercase tracking-wider flex items-center gap-1.5">
+            <span className="text-xs font-black text-foreground uppercase tracking-wider flex items-center gap-1.5">
               🌇 Afternoon Shift (PM)
             </span>
             <span className={`text-xs font-bold px-2.5 py-0.5 rounded-full ${
               todayCapacity.afternoonBooked >= todayCapacity.maxAfternoon
-                ? "bg-red-100 text-red-700 font-black"
-                : "bg-white text-gray-700 shadow-xs"
+                ? "bg-destructive/10 text-destructive font-black border border-destructive/20"
+                : "bg-card text-foreground border border-border shadow-xs"
             }`}>
               {todayCapacity.afternoonBooked} / {todayCapacity.maxAfternoon} Booked
             </span>
           </div>
-          <div className="w-full bg-white/80 h-2.5 rounded-full overflow-hidden border border-blue-100">
+          <div className="w-full bg-muted h-2.5 rounded-full overflow-hidden border border-border">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
-                todayCapacity.afternoonPct >= 100 ? "bg-red-500" : todayCapacity.afternoonPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
+                todayCapacity.afternoonPct >= 100 ? "bg-destructive" : todayCapacity.afternoonPct >= 70 ? "bg-amber-500" : "bg-emerald-500"
               }`}
               style={{ width: `${todayCapacity.afternoonPct}%` }}
             />
           </div>
-          <p className="text-[11px] text-gray-500">
+          <p className="text-[11px] text-muted-foreground font-medium">
             {todayCapacity.maxAfternoon - todayCapacity.afternoonBooked <= 0 
               ? "⚠️ Afternoon shift is at maximum capacity." 
               : `${todayCapacity.maxAfternoon - todayCapacity.afternoonBooked} afternoon slots remaining for today.`}
@@ -276,297 +407,241 @@ export function AppointmentsManager({
         </div>
       </div>
 
-      {/* ── Stat cards ─────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        {["Pending", "Approved", "Completed", "Rejected"].map((s) => {
-          const cfg = STATUS[s];
-          return (
-            <button
-              key={s}
-              onClick={() => { setActiveTab(s); clearSelection(); }}
-              className={`bg-white rounded-2xl border p-4 text-left transition-all hover:shadow-md ${
-                activeTab === s ? "border-rose-300 shadow-md ring-1 ring-rose-200" : "border-gray-100 shadow-sm"
-              }`}
-            >
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-xs font-bold text-gray-400 uppercase tracking-wider">{s}</span>
-                <div className={`w-2 h-2 rounded-full ${cfg.dot}`} />
-              </div>
-              <p className="text-3xl font-bold text-gray-900">{counts[s]}</p>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* ── Toolbar: Tabs + Search + Sort ─────────────────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
-
-        {/* Tabs row */}
-        <div className="flex gap-1 px-4 pt-4 flex-wrap border-b border-gray-100 pb-0">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => { setActiveTab(tab); clearSelection(); }}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-t-xl font-semibold text-sm border-b-2 transition-all ${
-                activeTab === tab
-                  ? "border-rose-500 text-rose-600 bg-rose-50/60"
-                  : "border-transparent text-gray-500 hover:text-gray-800 hover:bg-gray-50"
-              }`}
-            >
-              {tab}
-              <span className={`px-1.5 py-0.5 text-xs rounded-full font-bold ${
-                activeTab === tab ? "bg-rose-500 text-white" : "bg-gray-100 text-gray-600"
-              }`}>
-                {counts[tab] ?? appointments.length}
-              </span>
-            </button>
-          ))}
-        </div>
-
-        {/* Search + actions bar */}
-        <div className="px-5 py-4 flex flex-col sm:flex-row gap-3 border-b border-gray-100 bg-gray-50/40">
-          {/* Search */}
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by patient name, service, or date…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 h-10 rounded-xl border border-gray-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-rose-500 transition-all placeholder:text-gray-400"
-            />
-          </div>
-
-          {/* Bulk action */}
-          {someSelected && (
-            <div className="flex items-center gap-2 animate-in slide-in-from-right-4 duration-200">
-              <span className="text-sm font-semibold text-gray-600">
-                {selected.size} selected
-              </span>
-              <select
-                value={bulkStatus}
-                onChange={(e) => setBulkStatus(e.target.value)}
-                className="h-10 rounded-xl border border-gray-200 bg-white text-sm px-3 focus:outline-none focus:ring-2 focus:ring-rose-500"
-              >
-                <option value="Approved">Approve</option>
-                <option value="Rejected">Reject</option>
-                <option value="Completed">Complete</option>
-                <option value="Pending">Set Pending</option>
-              </select>
-              <Button
-                onClick={handleBulk}
-                disabled={isPending}
-                className="bg-rose-500 hover:bg-rose-600 text-white rounded-xl h-10 px-4 font-semibold text-sm gap-2"
-              >
-                {isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                Apply
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={clearSelection}
-                className="text-gray-500 rounded-xl h-10 px-3 text-sm"
-              >
-                Clear
-              </Button>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 text-xs text-gray-400 font-medium flex-shrink-0">
-            <ListFilter className="w-4 h-4" />
-            {visible.length} record{visible.length !== 1 ? "s" : ""}
-          </div>
-        </div>
-
-        {/* ── Table header ──────────────────────────────────────────── */}
-        <div className="hidden lg:grid grid-cols-[40px_1fr_150px_140px_130px_220px] items-center px-5 py-2.5 bg-gray-50 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase tracking-wider gap-3">
-          {/* Checkbox all */}
-          <input
-            type="checkbox"
-            checked={allSelected}
-            onChange={toggleAll}
-            className="w-4 h-4 accent-rose-500 cursor-pointer"
-          />
-          {/* Patient name */}
-          <button onClick={() => toggleSort("patients")} className="flex items-center gap-1 hover:text-gray-700 transition-colors text-left">
-            Patient & Clinical Alerts <SortIcon field="patients" sortField={sortField} sortDir={sortDir} />
-          </button>
-          {/* Service */}
-          <button onClick={() => toggleSort("service_type")} className="flex items-center gap-1 hover:text-gray-700 transition-colors">
-            Service <SortIcon field="service_type" sortField={sortField} sortDir={sortDir} />
-          </button>
-          {/* Date */}
-          <button onClick={() => toggleSort("appointment_date")} className="flex items-center gap-1 hover:text-gray-700 transition-colors">
-            Date & Shift <SortIcon field="appointment_date" sortField={sortField} sortDir={sortDir} />
-          </button>
-          {/* Status */}
-          <span>Status</span>
-          {/* Actions & Staff Assignment */}
-          <span className="text-right">Staff & Action</span>
-        </div>
-
-        {/* ── Table rows ──────────────────────────────────────────────── */}
-        {visible.length === 0 ? (
-          <div className="py-24 text-center">
-            <CalendarDays className="w-14 h-14 text-gray-200 mx-auto mb-4" />
-            <p className="text-gray-400 font-medium text-lg">
-              {search ? "No results match your search." : `No ${activeTab === "All" ? "" : activeTab.toLowerCase() + " "}appointments.`}
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-gray-50">
-            {visible.map((appt) => {
-              const cfg = STATUS[appt.status] || STATUS.Pending;
-              const Icon = cfg.icon;
-              const patientName = appt.patients?.full_name || "Unknown Patient";
-              const contact = appt.patients?.contact_number || "—";
-              const isSelected = selected.has(appt.id);
-              const attendingStaffName = staffMap[appt.attending_staff_id];
-
+      {/* ── View Rendering: Kanban vs Table ─────────────────────────────── */}
+      {viewMode === "kanban" ? (
+        <KanbanBoard
+          appointments={appointmentsList}
+          staffMap={staffMap}
+          onUpdateTriageStatus={handleUpdateTriageStatus}
+        />
+      ) : (
+        <div className="space-y-6 animate-in fade-in duration-300">
+          {/* Stat cards */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {["Pending", "Approved", "Completed", "Rejected"].map((s) => {
+              const cfg = STATUS[s];
               return (
-                <div
-                  key={appt.id}
-                  className={`grid grid-cols-[40px_1fr] lg:grid-cols-[40px_1fr_150px_140px_130px_220px] items-center px-5 py-4 gap-3 transition-colors ${
-                    isSelected ? "bg-rose-50/60" : "hover:bg-gray-50/60"
+                <button
+                  key={s}
+                  onClick={() => { setActiveTab(s); clearSelection(); }}
+                  className={`bg-card rounded-2xl border p-4 text-left transition-all hover:shadow-md ${
+                    activeTab === s ? "border-primary shadow-md ring-1 ring-primary/30" : "border-border shadow-xs"
                   }`}
                 >
-                  {/* Checkbox */}
-                  <input
-                    type="checkbox"
-                    checked={isSelected}
-                    onChange={() => toggleRow(appt.id)}
-                    className="w-4 h-4 accent-rose-500 cursor-pointer"
-                  />
-
-                  {/* Patient + High Risk / Allergy flags */}
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-rose-400 to-rose-600 flex items-center justify-center text-white font-bold text-xs flex-shrink-0 shadow-sm">
-                      {initials(patientName)}
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-bold text-gray-900 text-sm truncate">{patientName}</p>
-                        {appt.patients?.is_high_risk && (
-                          <span className="bg-red-100 text-red-700 text-[10px] font-black px-1.5 py-0.2 rounded border border-red-200">
-                            HIGH RISK
-                          </span>
-                        )}
-                        {appt.patients?.allergies && (
-                          <span className="bg-amber-100 text-amber-800 text-[10px] font-bold px-1.5 py-0.2 rounded" title={`Allergies: ${appt.patients.allergies}`}>
-                            ALLERGIC
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-gray-400 truncate">{contact}</p>
-                      {appt.notes && (
-                        <p className="text-xs text-gray-500 italic truncate mt-0.5 max-w-xs">"{appt.notes}"</p>
-                      )}
-                    </div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">{s}</span>
+                    <div className={`w-2 h-2 rounded-full ${cfg.dot}`} />
                   </div>
-
-                  {/* Service — desktop */}
-                  <p className="hidden lg:block text-xs font-bold text-gray-700">
-                    {SERVICE_LABELS[appt.service_type] || appt.service_type}
-                  </p>
-
-                  {/* Date — desktop */}
-                  <div className="hidden lg:block">
-                    <p className="text-xs font-bold text-gray-800">{appt.appointment_date}</p>
-                    {appt.time_preference && (
-                      <span className="text-[11px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-md mt-0.5 inline-block">
-                        {appt.time_preference}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Status badge — desktop */}
-                  <div className="hidden lg:flex items-center">
-                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl border text-xs font-bold ${cfg.badge}`}>
-                      <Icon className="w-3 h-3" />
-                      {appt.status}
-                    </span>
-                  </div>
-
-                  {/* Actions & Staff Assignment — desktop */}
-                  <div className="hidden lg:flex flex-col items-end gap-1.5 justify-center">
-                    {appt.status === "Pending" && (
-                      <div className="flex items-center gap-1.5">
-                        {staffUsers.length > 0 && (
-                          <select
-                            value={assignedStaff[appt.id] || ""}
-                            onChange={(e) => setAssignedStaff((prev) => ({ ...prev, [appt.id]: e.target.value }))}
-                            className="h-8 rounded-lg border border-gray-200 bg-white text-[11px] font-medium px-2 focus:ring-1 focus:ring-emerald-500 outline-none max-w-[110px] truncate"
-                          >
-                            <option value="">Assign Staff...</option>
-                            {staffUsers.map((u) => (
-                              <option key={u.id} value={u.id}>
-                                {staffMap[u.id] || u.email}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <Button
-                          size="sm"
-                          onClick={() => handleStatus(appt.id, "Approved")}
-                          disabled={isPending}
-                          className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg h-8 px-2.5 text-xs font-bold shadow-sm"
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() => handleStatus(appt.id, "Rejected")}
-                          disabled={isPending}
-                          className="text-red-500 hover:bg-red-50 rounded-lg h-8 px-2 text-xs"
-                        >
-                          Reject
-                        </Button>
-                      </div>
-                    )}
-
-                    {appt.status === "Approved" && (
-                      <div className="flex items-center gap-2">
-                        {attendingStaffName && (
-                          <span className="text-[11px] font-semibold text-emerald-700 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-lg flex items-center gap-1">
-                            <UserCheck className="w-3 h-3" /> {attendingStaffName}
-                          </span>
-                        )}
-                        <Button
-                          size="sm"
-                          onClick={() => handleStatus(appt.id, "Completed")}
-                          disabled={isPending}
-                          className="bg-blue-500 hover:bg-blue-600 text-white rounded-lg h-8 px-3 text-xs font-bold shadow-sm"
-                        >
-                          Complete
-                        </Button>
-                      </div>
-                    )}
-
-                    {(appt.status === "Completed" || appt.status === "Rejected") && (
-                      <div className="text-[11px] text-gray-400 font-medium flex items-center gap-1">
-                        {attendingStaffName && <span>Staff: {attendingStaffName}</span>}
-                        {!attendingStaffName && <span className="italic">—</span>}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                  <p className="text-3xl font-black text-foreground">{counts[s]}</p>
+                </button>
               );
             })}
           </div>
-        )}
 
-        {/* Footer count */}
-        <div className="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-          <span className="text-xs text-gray-400 font-medium">
-            Showing {visible.length} of {appointments.length} total appointments
-          </span>
-          {someSelected && (
-            <span className="text-xs text-rose-600 font-bold">
-              {selected.size} row{selected.size !== 1 ? "s" : ""} selected
-            </span>
-          )}
+          {/* Table Container */}
+          <div className="bg-card rounded-3xl border border-border shadow-xs overflow-hidden">
+            {/* Tabs + Search bar */}
+            <div className="p-4 border-b border-border flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-muted/20">
+              <div className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0">
+                {TABS.map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => { setActiveTab(tab); clearSelection(); }}
+                    className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap ${
+                      activeTab === tab
+                        ? "bg-primary text-primary-foreground shadow-xs shadow-primary/20"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {tab}
+                    <span className="ml-1.5 opacity-80 text-[10px]">({counts[tab] ?? visible.length})</span>
+                  </button>
+                ))}
+              </div>
+
+              <div className="relative w-full sm:w-64">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  placeholder="Search patient, service..."
+                  value={search}
+                  onChange={(e) => { setSearch(e.target.value); clearSelection(); }}
+                  className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-border bg-card text-foreground focus:outline-none focus:ring-1 focus:ring-primary font-medium"
+                />
+              </div>
+            </div>
+
+            {/* Bulk actions bar */}
+            {someSelected && (
+              <div className="px-5 py-3 bg-secondary/50 border-b border-border flex items-center justify-between gap-4 animate-in fade-in">
+                <span className="text-xs font-bold text-foreground">
+                  {selected.size} selected
+                </span>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={bulkStatus}
+                    onChange={(e) => setBulkStatus(e.target.value)}
+                    className="text-xs font-bold rounded-xl border border-border bg-card px-2.5 py-1 text-foreground focus:outline-none"
+                  >
+                    <option value="Approved">Set Approved</option>
+                    <option value="Completed">Set Completed</option>
+                    <option value="Rejected">Set Rejected</option>
+                  </select>
+                  <Button
+                    size="sm"
+                    onClick={handleBulk}
+                    disabled={isPending}
+                    className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-bold rounded-xl h-8 px-3 shadow-xs"
+                  >
+                    {isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                    Apply
+                  </Button>
+                  <button
+                    onClick={clearSelection}
+                    className="text-xs text-muted-foreground hover:text-foreground underline ml-1"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Table */}
+            {visible.length === 0 ? (
+              <div className="py-16 text-center text-muted-foreground space-y-2">
+                <CalendarDays className="w-8 h-8 mx-auto opacity-30" />
+                <p className="text-xs font-medium">No appointments found for this filter.</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {visible.map((appt) => {
+                  const cfg = STATUS[appt.status] || STATUS.Pending;
+                  const Icon = cfg.icon;
+                  const isChecked = selected.has(appt.id);
+                  const patientName = appt.patients?.full_name || "Unknown Patient";
+                  const contact = appt.patients?.contact_number || "—";
+                  const attendingStaffName = staffMap[appt.attending_staff_id];
+
+                  return (
+                    <div
+                      key={appt.id}
+                      className={`p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 transition-colors ${
+                        isChecked ? "bg-primary/5" : "hover:bg-muted/30"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => toggleRow(appt.id)}
+                          className="rounded border-border text-primary focus:ring-primary w-4 h-4 cursor-pointer"
+                        />
+                        <div className="w-10 h-10 rounded-2xl bg-secondary/50 border border-secondary text-primary font-black text-xs flex items-center justify-center shrink-0">
+                          {initials(patientName)}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-bold text-foreground text-sm tracking-tight">{patientName}</h4>
+                            {appt.patients?.is_high_risk && (
+                              <span className="bg-destructive/10 text-destructive text-[10px] font-black px-1.5 py-0.5 rounded uppercase border border-destructive/20">
+                                HIGH RISK
+                              </span>
+                            )}
+                            {appt.triage_status && (
+                              <span className="bg-secondary text-foreground text-[10px] font-bold px-2 py-0.5 rounded-full border border-border">
+                                Queue: {appt.triage_status}
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground font-medium mt-0.5">
+                            {SERVICE_LABELS[appt.service_type] || appt.service_type} • {appt.appointment_date} {appt.time_preference ? `(${appt.time_preference})` : ""}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-2 self-end lg:self-center">
+                        {appt.status === "Pending" && (
+                          <div className="flex items-center gap-1.5">
+                            {staffUsers.length > 0 && (
+                              <select
+                                value={assignedStaff[appt.id] || ""}
+                                onChange={(e) => setAssignedStaff((prev) => ({ ...prev, [appt.id]: e.target.value }))}
+                                className="h-8 rounded-xl border border-border bg-card text-foreground text-[11px] font-medium px-2 focus:ring-1 focus:ring-primary outline-none max-w-[120px] truncate"
+                              >
+                                <option value="">Assign Staff...</option>
+                                {staffUsers.map((u) => (
+                                  <option key={u.id} value={u.id}>
+                                    {staffMap[u.id] || u.email}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                            <Button
+                              size="sm"
+                              onClick={() => handleStatus(appt.id, "Approved")}
+                              disabled={isPending}
+                              className="bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl h-8 px-3 text-xs font-bold shadow-xs"
+                            >
+                              Approve
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleStatus(appt.id, "Rejected")}
+                              disabled={isPending}
+                              className="text-destructive hover:bg-destructive/10 rounded-xl h-8 px-2.5 text-xs font-bold"
+                            >
+                              Reject
+                            </Button>
+                          </div>
+                        )}
+
+                        {appt.status === "Approved" && (
+                          <div className="flex items-center gap-2">
+                            {attendingStaffName && (
+                              <span className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-xl flex items-center gap-1">
+                                <UserCheck className="w-3 h-3" /> {attendingStaffName}
+                              </span>
+                            )}
+                            <Button
+                              size="sm"
+                              onClick={() => handleStatus(appt.id, "Completed")}
+                              disabled={isPending}
+                              className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-xl h-8 px-3 text-xs font-bold shadow-xs"
+                            >
+                              Complete
+                            </Button>
+                          </div>
+                        )}
+
+                        {(appt.status === "Completed" || appt.status === "Rejected") && (
+                          <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-xl border text-xs font-bold ${cfg.badge}`}>
+                            <Icon className="w-3 h-3" />
+                            {appt.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Footer count */}
+            <div className="px-5 py-3 bg-muted/20 border-t border-border flex items-center justify-between">
+              <span className="text-xs text-muted-foreground font-medium">
+                Showing {visible.length} of {appointmentsList.length} total appointments
+              </span>
+              {someSelected && (
+                <span className="text-xs text-primary font-bold">
+                  {selected.size} row{selected.size !== 1 ? "s" : ""} selected
+                </span>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }
