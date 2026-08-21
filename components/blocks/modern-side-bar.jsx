@@ -17,12 +17,14 @@ import {
   ClipboardList,
   Search,
   LayoutTemplate,
-  Activity
+  Activity,
+  BarChart3
 } from "lucide-react";
 
 // The unified navigational array map
 const navigationItems = [
   { id: "dashboard", name: "Dashboard", icon: Home, href: "/admin" },
+  { id: "analytics", name: "Analytics & Reports", icon: BarChart3, href: "/admin/analytics" },
   { id: "appointments", name: "Appointments", icon: ClipboardList, href: "/admin/appointments" },
   { id: "schedule", name: "Clinic Schedule", icon: CalendarDays, href: "/admin/schedule" },
   { id: "patients", name: "Patients", icon: User, href: "/admin/patients" },
