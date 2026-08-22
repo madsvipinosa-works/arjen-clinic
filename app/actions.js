@@ -1245,7 +1245,61 @@ export async function updateNavbarLogo(formData) {
 
   revalidatePath('/', 'layout');
   revalidatePath('/admin/cms');
-  return { success: true };
+  return { success: true, publicUrl };
+}
+
+/**
+ * updateFavicon(formData)
+ */
+export async function updateFavicon(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const action = formData.get('action'); // 'upload' | 'remove' | 'sync_logo'
+
+  if (action === 'remove') {
+    const { error } = await supabaseServer.from('clinic_settings').update({ favicon_url: null }).eq('id', 1);
+    if (error) return { success: false, error: error.message };
+    revalidatePath('/', 'layout');
+    revalidatePath('/admin/cms');
+    return { success: true };
+  }
+
+  if (action === 'sync_logo') {
+    const { data: settings } = await supabaseServer.from('clinic_settings').select('navbar_logo').eq('id', 1).single();
+    if (!settings?.navbar_logo) {
+      return { success: false, error: 'No navbar logo found to sync. Please upload or save a logo first.' };
+    }
+    const { error } = await supabaseServer.from('clinic_settings').update({ favicon_url: settings.navbar_logo }).eq('id', 1);
+    if (error) return { success: false, error: error.message };
+    revalidatePath('/', 'layout');
+    revalidatePath('/admin/cms');
+    return { success: true, publicUrl: settings.navbar_logo };
+  }
+
+  const file = formData.get('favicon_file');
+  if (!file || file.size === 0) return { success: false, error: 'No file selected.' };
+
+  const fileExt = file.name?.split('.').pop().toLowerCase() || 'png';
+  const filePath = `favicon/${Date.now()}.${fileExt}`;
+
+  const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true });
+
+  let publicUrl = '';
+  if (uploadError) {
+    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true });
+    if (fallbackError) return { success: false, error: fallbackError.message };
+    publicUrl = supabaseServer.storage.from('patient-records').getPublicUrl(filePath).data.publicUrl;
+  } else {
+    publicUrl = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath).data.publicUrl;
+  }
+
+  const { error: dbError } = await supabaseServer.from('clinic_settings').update({ favicon_url: publicUrl }).eq('id', 1);
+  if (dbError) return { success: false, error: dbError.message };
+
+  revalidatePath('/', 'layout');
+  revalidatePath('/admin/cms');
+  return { success: true, publicUrl };
 }
 
 /**

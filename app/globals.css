@@ -149,3 +149,48 @@
 .animate-marquee:hover {
   animation-play-state: paused;
 }
+
+/* ── Standardized Clinical Print Styles ── */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 10mm 12mm 12mm 12mm;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    font-size: 11pt;
+  }
+
+  /* Force table headers to repeat across pages */
+  thead {
+    display: table-header-group;
+  }
+
+  tfoot {
+    display: table-footer-group;
+  }
+
+  /* Prevent row and card splitting across pages */
+  tr, .print-card, .signature-block, .avoid-break {
+    break-inside: avoid !important;
+    page-break-inside: avoid !important;
+  }
+
+  /* Section page-breaking controls */
+  .page-break-before {
+    break-before: page !important;
+    page-break-before: always !important;
+  }
+
+  /* Hide interactive / non-printable elements */
+  .no-print,
+  button:not(.allow-print),
+  nav,
+  aside {
+    display: none !important;
+  }
+}

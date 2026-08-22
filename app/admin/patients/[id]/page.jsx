@@ -21,6 +21,7 @@ import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
 import { VisitLogCard } from '@/components/admin/visit-log-card';
 import { MaternalEpisodesSection } from '@/components/admin/maternal-episodes-section';
 import { ConsultationThread } from '@/components/shared/consultation-thread';
+import { PrintRecordButton } from '@/components/admin/patients/print-record-button';
 
 export default async function PatientDetailPage({ params }) {
   const resolvedParams = await params;
@@ -84,6 +85,9 @@ export default async function PatientDetailPage({ params }) {
                 </span>
               )}
             </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <PrintRecordButton patientId={id} />
           </div>
         </div>
 

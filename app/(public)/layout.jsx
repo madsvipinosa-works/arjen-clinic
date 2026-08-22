@@ -5,10 +5,22 @@ import { logout } from "../(auth)/actions";
 
 export async function generateMetadata() {
   const supabase = await createClient();
-  const { data: settings } = await supabase.from("clinic_settings").select("seo_meta_title, seo_meta_description").eq("id", 1).single();
+  const { data: settings } = await supabase
+    .from("clinic_settings")
+    .select("seo_meta_title, seo_meta_description, favicon_url, navbar_logo")
+    .eq("id", 1)
+    .single();
+
+  const iconUrl = settings?.favicon_url || settings?.navbar_logo || "/favicon.ico";
+
   return {
     title: settings?.seo_meta_title || "AR-JEN Maternity and Lying-In Clinic",
     description: settings?.seo_meta_description || "Providing compassionate, highly-skilled prenatal care and safe delivery.",
+    icons: {
+      icon: [{ url: iconUrl, sizes: "any" }],
+      apple: [{ url: iconUrl }],
+      shortcut: [iconUrl],
+    },
   };
 }
 

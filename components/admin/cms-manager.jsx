@@ -28,9 +28,12 @@ import {
   ExternalLink,
 } from "lucide-react";
 import { ServiceManager } from "@/components/forms/service-manager";
+import { LogoStudio } from "@/components/admin/logo-studio";
+import { FaviconStudio } from "@/components/admin/favicon-studio";
 import {
   updateHeroContent,
   updateNavbarLogo,
+  updateFavicon,
   updateAboutContent,
   updateFooterContent,
   updateSEOMetadata,
@@ -74,6 +77,114 @@ export function CMSManager({ initialSettings }) {
         setSavingKey(null);
       }
     });
+  };
+
+  const handleLogoStudioSave = async (formData) => {
+    setSavingKey("navbar_logo_studio");
+    setSavedKey(null);
+    try {
+      const result = await updateNavbarLogo(formData);
+      if (result?.success === false) {
+        showToast("error", "Failed to Save Logo", result?.error || "An error occurred while saving the logo.");
+      } else {
+        if (result?.publicUrl) {
+          setSettings((prev) => ({ ...prev, navbar_logo: result.publicUrl }));
+        }
+        setSavedKey("navbar_logo_studio");
+        showToast("success", "Logo Updated & Published!", "Navbar brand logo framed and published successfully.");
+        setTimeout(() => setSavedKey(null), 3500);
+      }
+    } catch (err) {
+      showToast("error", "Error", err.message || "Failed to save logo.");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleLogoStudioRemove = async () => {
+    const formData = new FormData();
+    formData.append("action", "remove");
+    setSavingKey("navbar_logo_remove");
+    setSavedKey(null);
+    try {
+      const result = await updateNavbarLogo(formData);
+      if (result?.success === false) {
+        showToast("error", "Failed to Remove Logo", result?.error || "An error occurred.");
+      } else {
+        setSettings((prev) => ({ ...prev, navbar_logo: null }));
+        showToast("success", "Logo Removed", "Custom logo removed. Default clinic icon restored.");
+      }
+    } catch (err) {
+      showToast("error", "Error", err.message || "Failed to remove logo.");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleFaviconSave = async (formData) => {
+    setSavingKey("favicon_studio");
+    setSavedKey(null);
+    try {
+      const result = await updateFavicon(formData);
+      if (result?.success === false) {
+        showToast("error", "Failed to Save Favicon", result?.error || "An error occurred while saving the favicon.");
+      } else {
+        if (result?.publicUrl) {
+          setSettings((prev) => ({ ...prev, favicon_url: result.publicUrl }));
+        }
+        setSavedKey("favicon_studio");
+        showToast("success", "Favicon Published!", "Website browser icon updated successfully across all tabs.");
+        setTimeout(() => setSavedKey(null), 3500);
+      }
+    } catch (err) {
+      showToast("error", "Error", err.message || "Failed to save favicon.");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleFaviconRemove = async () => {
+    const formData = new FormData();
+    formData.append("action", "remove");
+    setSavingKey("favicon_remove");
+    setSavedKey(null);
+    try {
+      const result = await updateFavicon(formData);
+      if (result?.success === false) {
+        showToast("error", "Failed to Remove Favicon", result?.error || "An error occurred.");
+      } else {
+        setSettings((prev) => ({ ...prev, favicon_url: null }));
+        showToast("success", "Favicon Removed", "Website favicon reverted to default.");
+      }
+    } catch (err) {
+      showToast("error", "Error", err.message || "Failed to remove favicon.");
+    } finally {
+      setSavingKey(null);
+    }
+  };
+
+  const handleFaviconSyncWithLogo = async () => {
+    const formData = new FormData();
+    formData.append("action", "sync_logo");
+    setSavingKey("favicon_studio");
+    setSavedKey(null);
+    try {
+      const result = await updateFavicon(formData);
+      if (result?.success === false) {
+        showToast("error", "Failed to Sync", result?.error || "An error occurred.");
+      } else {
+        if (result?.publicUrl) {
+          setSettings((prev) => ({ ...prev, favicon_url: result.publicUrl }));
+        }
+        setSavedKey("favicon_studio");
+        showToast("success", "Favicon Synced!", "Navbar brand logo is now set as the website favicon.");
+        setTimeout(() => setSavedKey(null), 3500);
+      }
+    } catch (err) {
+      showToast("error", "Error", err.message || "Failed to sync favicon.");
+    } finally {
+      setSavingKey(null);
+    }
   };
 
   const defaultTrustPoints = [
@@ -552,89 +663,25 @@ export function CMSManager({ initialSettings }) {
             LOGO & SEO TAB
            ══════════════════════════════════════════════════ */}
         <TabsContent value="general" className="mt-6 space-y-6">
-          {/* Logo Card */}
-          <Card className="border-rose-100 shadow-sm">
-            <CardHeader className="bg-rose-50/30 border-b border-rose-50 pb-4">
-              <CardTitle className="text-rose-900 flex items-center">
-                <ImageIcon className="w-5 h-5 mr-2 text-rose-500" />
-                Navbar Brand Logo
-              </CardTitle>
-              <CardDescription>Upload a custom logo to display in the top navigation bar.</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="flex flex-col sm:flex-row items-start gap-8">
-                <div className="w-40 h-24 bg-gray-50 rounded-2xl flex items-center justify-center border-2 border-dashed border-gray-200 overflow-hidden shrink-0">
-                  {settings?.navbar_logo ? (
-                    <img src={settings.navbar_logo} alt="Navbar Logo" className="w-full h-full object-contain p-2" />
-                  ) : (
-                    <span className="text-gray-400 text-xs font-medium">Default Icon Logo</span>
-                  )}
-                </div>
-                <div className="flex-1 space-y-4">
-                  <form
-                    onSubmit={(e) =>
-                      handleAction(e, updateNavbarLogo, "navbar_logo_upload", "Brand logo uploaded successfully!")
-                    }
-                    className="space-y-4"
-                  >
-                    <input type="hidden" name="action" value="upload" />
-                    <div className="space-y-2">
-                      <Label htmlFor="navbar_logo" className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                        Upload New Logo
-                      </Label>
-                      <Input
-                        id="navbar_logo"
-                        name="navbar_logo"
-                        type="file"
-                        accept="image/*"
-                        required
-                        className="rounded-xl"
-                      />
-                      <p className="text-xs text-gray-400">PNG, SVG, or JPG (transparent background recommended).</p>
-                    </div>
-                    <Button
-                      type="submit"
-                      disabled={savingKey === "navbar_logo_upload"}
-                      className={`font-bold rounded-xl h-10 px-6 transition-all ${
-                        savedKey === "navbar_logo_upload"
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                          : "bg-rose-600 hover:bg-rose-700 text-white"
-                      }`}
-                    >
-                      {savingKey === "navbar_logo_upload" ? (
-                        <>
-                          <Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving Logo...
-                        </>
-                      ) : savedKey === "navbar_logo_upload" ? (
-                        <>
-                          <Check className="w-4 h-4 mr-2" /> Logo Saved!
-                        </>
-                      ) : (
-                        "Save Logo"
-                      )}
-                    </Button>
-                  </form>
-                  {settings?.navbar_logo && (
-                    <form
-                      onSubmit={(e) =>
-                        handleAction(e, updateNavbarLogo, "navbar_logo_remove", "Navbar logo removed.")
-                      }
-                    >
-                      <input type="hidden" name="action" value="remove" />
-                      <Button
-                        type="submit"
-                        variant="outline"
-                        disabled={savingKey === "navbar_logo_remove"}
-                        className="text-red-600 border-red-200 hover:bg-red-50 rounded-xl text-xs font-bold"
-                      >
-                        Remove Custom Logo
-                      </Button>
-                    </form>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+          {/* Interactive Logo Studio & Framing Card */}
+          <LogoStudio
+            currentLogoUrl={settings?.navbar_logo}
+            onSaveLogo={handleLogoStudioSave}
+            onRemoveLogo={handleLogoStudioRemove}
+            isSaving={savingKey === "navbar_logo_studio" || savingKey === "navbar_logo_remove"}
+            savedSuccess={savedKey === "navbar_logo_studio"}
+          />
+
+          {/* Interactive Favicon Studio & Framing Card */}
+          <FaviconStudio
+            currentFaviconUrl={settings?.favicon_url}
+            navbarLogoUrl={settings?.navbar_logo}
+            onSaveFavicon={handleFaviconSave}
+            onRemoveFavicon={handleFaviconRemove}
+            onSyncWithLogo={handleFaviconSyncWithLogo}
+            isSaving={savingKey === "favicon_studio" || savingKey === "favicon_remove"}
+            savedSuccess={savedKey === "favicon_studio"}
+          />
 
           {/* SEO Metadata Card */}
           <Card className="border-rose-100 shadow-sm">

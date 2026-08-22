@@ -5,10 +5,12 @@ import {
   Activity, 
   Scale, 
   Baby,
-  Calendar
+  Calendar,
+  Printer
 } from "lucide-react";
 import { PatientSwitcher } from "@/components/patient/patient-switcher";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
 
 export default async function PatientHistoryPage({ searchParams }) {
   const supabase = await createClient();
@@ -65,6 +67,17 @@ export default async function PatientHistoryPage({ searchParams }) {
               <PatientSwitcher patients={patients} activePatientId={activePatient?.id} />
             </div>
           )}
+        </div>
+        <div className="flex items-center gap-2 self-start sm:self-center">
+          <a
+            href={`/patient/history/print?patientId=${patientId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-full border border-border bg-card hover:bg-muted text-foreground transition-all shadow-sm hover:border-primary/40"
+          >
+            <Printer className="w-4 h-4 text-primary" />
+            <span>Print Clinical Summary</span>
+          </a>
         </div>
       </div>
 

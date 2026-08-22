@@ -175,6 +175,60 @@ const MIGRATIONS = [
         add column if not exists next_visit  date;
     `,
   },
+  {
+    name: '20260822020000_add_favicon_url',
+    sql: `
+      alter table public.clinic_settings
+        add column if not exists favicon_url text;
+    `,
+  },
+  {
+    name: '20260822030000_clinical_record_exports',
+    sql: `
+      create table if not exists public.clinical_record_exports (
+        id uuid primary key default gen_random_uuid(),
+        patient_id uuid not null references public.patients(id) on delete cascade,
+        exported_by uuid not null references auth.users(id),
+        export_type text not null default 'PRINT_SUMMARY',
+        metadata jsonb default '{}'::jsonb,
+        created_at timestamptz not null default timezone('utc'::text, now())
+      );
+
+      alter table public.clinical_record_exports enable row level security;
+
+      drop policy if exists "Staff can view all clinical exports" on public.clinical_record_exports;
+      create policy "Staff can view all clinical exports" on public.clinical_record_exports
+        for select using (
+          exists (
+            select 1 from public.users where public.users.id = auth.uid() and public.users.role in ('admin', 'staff')
+          )
+        );
+
+      drop policy if exists "Staff can insert clinical exports" on public.clinical_record_exports;
+      create policy "Staff can insert clinical exports" on public.clinical_record_exports
+        for insert with check (
+          exists (
+            select 1 from public.users where public.users.id = auth.uid() and public.users.role in ('admin', 'staff')
+          )
+        );
+
+      drop policy if exists "Patients view own clinical exports" on public.clinical_record_exports;
+      create policy "Patients view own clinical exports" on public.clinical_record_exports
+        for select using (
+          exists (
+            select 1 from public.patients where public.patients.id = patient_id and public.patients.account_id = auth.uid()
+          )
+        );
+
+      drop policy if exists "Patients insert own clinical exports" on public.clinical_record_exports;
+      create policy "Patients insert own clinical exports" on public.clinical_record_exports
+        for insert with check (
+          exists (
+            select 1 from public.patients where public.patients.id = patient_id and public.patients.account_id = auth.uid()
+          )
+        );
+    `,
+  },
 ];
 
 async function runSQL(sql) {

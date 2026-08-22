@@ -110,7 +110,7 @@ function LogoMark({ dark = false, logoSrc = null }) {
           <img
             src={logoSrc}
             alt="AR-JEN Maternity Clinic Logo"
-            className="h-full w-full object-contain p-1"
+            className="h-full w-full object-contain p-0.5 transition-transform duration-300 group-hover:scale-105"
           />
         ) : (
           <div className="flex flex-col items-center justify-center text-primary">
