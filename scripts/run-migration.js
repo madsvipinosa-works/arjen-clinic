@@ -5,8 +5,18 @@ const https = require("https");
 const fs    = require("fs");
 const path  = require("path");
 
-const PROJECT_REF  = "vigqhnvaoszcffqvqmsg";
-const ACCESS_TOKEN = "sbp_590dc132d7a26ceabe991cfe70047dc358d1301e";
+// Read credentials dynamically from .env.local
+let PROJECT_REF = "jdpuheeirybeiytusgjm";
+let ACCESS_TOKEN = "";
+
+const envPath = path.resolve(process.cwd(), ".env.local");
+if (fs.existsSync(envPath)) {
+  const envContent = fs.readFileSync(envPath, "utf-8");
+  const urlMatch = envContent.match(/NEXT_PUBLIC_SUPABASE_URL=https:\/\/([^.]+)\.supabase\.co/);
+  const tokenMatch = envContent.match(/SUPABASE_ACCESS_TOKEN=([^\r\n]+)/);
+  if (urlMatch) PROJECT_REF = urlMatch[1].trim();
+  if (tokenMatch) ACCESS_TOKEN = tokenMatch[1].trim();
+}
 
 const sqlFile = process.argv[2];
 if (!sqlFile) {

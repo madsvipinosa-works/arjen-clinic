@@ -2,6 +2,7 @@ import { createClient } from '@/utils/supabase/server';
 import { notFound, redirect } from 'next/navigation';
 import { PrintableClinicalRecord } from '@/components/admin/patients/printable-clinical-record';
 import { AutoPrintTrigger } from '@/components/admin/patients/auto-print-trigger';
+import { logAuditEvent } from '@/lib/audit-logger';
 
 export const metadata = {
   title: 'Print Clinical Summary | AR-JEN Clinic',
@@ -54,6 +55,19 @@ export default async function PatientPrintPage({ params, searchParams }) {
         role: userProfile?.role || 'staff',
         patient_name: patient.full_name,
       },
+    });
+
+    await logAuditEvent({
+      action: 'EXPORT_CLINICAL_SUMMARY',
+      entityType: 'patients',
+      entityId: id,
+      details: {
+        patient_id: id,
+        patient_name: patient.full_name,
+        export_type: 'PRINT_SUMMARY',
+        role: userProfile?.role || 'staff',
+      },
+      userOverride: user,
     });
   } catch (err) {
     console.error('[audit_log] Could not record export event:', err);

@@ -18,14 +18,20 @@ import {
 } from 'lucide-react';
 import { ModularRecordEditor } from '@/components/admin/modular-record-editor';
 import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
-import { VisitLogCard } from '@/components/admin/visit-log-card';
-import { MaternalEpisodesSection } from '@/components/admin/maternal-episodes-section';
-import { ConsultationThread } from '@/components/shared/consultation-thread';
-import { PrintRecordButton } from '@/components/admin/patients/print-record-button';
+import { PrenatalLabsSection } from '@/components/admin/clinical/prenatal-labs-section';
+import { PatientClinicalHeader } from '@/components/admin/clinical/patient-clinical-header';
+import { PrenatalVisitsTab } from '@/components/admin/clinical/prenatal-visits-tab';
+import { PostpartumTabContent } from '@/components/admin/clinical/postpartum-tab-content';
+import { PatientTabsWrapper } from '@/components/admin/clinical/patient-tabs-wrapper';
+import { Baby, FlaskConical } from 'lucide-react';
+import Link from 'next/link';
 
-export default async function PatientDetailPage({ params }) {
+export default async function PatientDetailPage({ params, searchParams }) {
   const resolvedParams = await params;
+  const resolvedSearchParams = await searchParams;
   const id = resolvedParams.id;
+  const selectedEpisodeId = resolvedSearchParams?.episode;
+  const defaultTab = resolvedSearchParams?.tab || 'profile';
   const supabase = await createClient();
 
   const [
@@ -37,7 +43,9 @@ export default async function PatientDetailPage({ params }) {
     { data: attachments },
     { data: { user: staffUser } },
     { data: maternalEpisodes },
-    { data: staffUsersList }
+    { data: staffUsersList },
+    { data: prenatalLabResults },
+    { data: postpartumRecords }
   ] = await Promise.all([
     supabase.from('patients').select('*').eq('id', id).single(),
     supabase.from('birth_plans').select('*').eq('patient_id', id).single(),
@@ -47,7 +55,9 @@ export default async function PatientDetailPage({ params }) {
     supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
     supabase.auth.getUser(),
     supabase.from('maternal_episodes').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
-    supabase.from('users').select('id, email, role')
+    supabase.from('users').select('id, email, role'),
+    supabase.from('prenatal_lab_results').select('*').eq('patient_id', id).order('test_date', { ascending: false }),
+    supabase.from('postpartum_records').select('*').eq('patient_id', id).order('created_at', { ascending: false })
   ]);
 
   if (!patient) {
@@ -64,191 +74,73 @@ export default async function PatientDetailPage({ params }) {
     staffMap[u.id] = u.email ? u.email.split('@')[0] : `Staff (${u.id.slice(0, 6)})`;
   });
 
-  const activeEpisode = maternalEpisodes?.find(e => e.status === 'Active') || maternalEpisodes?.[0] || null;
+  const activeEpisode = (selectedEpisodeId ? maternalEpisodes?.find(e => e.id === selectedEpisodeId) : null)
+    || maternalEpisodes?.find(e => e.status === 'Active') 
+    || maternalEpisodes?.[0] 
+    || null;
 
   return (
-    <div className="max-w-5xl">
-      {/* Patient Header */}
-      <div className="mb-6 space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div>
-            <h2 className="text-3xl font-bold text-gray-900 tracking-tight">{patient.full_name || 'Anonymous Patient'}</h2>
-            <div className="flex flex-wrap items-center gap-3 mt-2">
-              <span className="text-sm text-gray-500 font-medium">
-                ID: <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-xs">{id.split('-')[0]}</span>
-              </span>
-              {patient.age && <><span className="text-gray-300 text-sm">•</span><span className="text-sm text-gray-500">Age: {patient.age}</span></>}
-              {patient.contact_number && <><span className="text-gray-300 text-sm">•</span><span className="text-sm text-gray-500">{patient.contact_number}</span></>}
-              {patient.blood_type && (
-                <span className="bg-rose-100 text-rose-700 font-black text-xs px-2.5 py-0.5 rounded-full border border-rose-200">
-                  Blood: {patient.blood_type}
-                </span>
-              )}
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <PrintRecordButton patientId={id} />
-          </div>
-        </div>
+    <div className="w-full max-w-7xl mx-auto space-y-6">
+      {/* ── 3-Second Clinical Snapshot Banner & Maternal Episode Switcher ── */}
+      <PatientClinicalHeader
+        patient={patient}
+        maternalEpisodes={maternalEpisodes || []}
+        activeEpisode={activeEpisode}
+        birthPlan={birthPlan}
+        id={id}
+      />
 
-        {/* Prominent Clinical Alerts in Header */}
-        <div className="flex flex-wrap gap-2.5 pt-1">
-          {patient.is_high_risk && (
-            <div className="bg-red-500 text-white font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm shadow-red-200 animate-pulse">
-              <ShieldAlert className="w-4 h-4" />
-              <span>HIGH RISK PREGNANCY</span>
-            </div>
-          )}
+      <PatientTabsWrapper
+        defaultTab={defaultTab}
+        tabs={[
+          { value: 'profile',      label: 'Profile' },
+          { value: 'clinical',     label: 'Clinical Observations' },
+          { value: 'labs',         label: 'Structured Labs' },
+          { value: 'postpartum',   label: 'Postpartum & Newborn' },
+          { value: 'prenatal',     label: 'Modular Records' },
+          { value: 'birthplan',    label: 'Birth Plan' },
+          { value: 'files',        label: 'Files & Uploads' },
+        ]}
+      >
 
-          {patient.allergies && (
-            <div className="bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-sm">
-              <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0" />
-              <span>Allergies: {patient.allergies}</span>
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Maternal Episode Management (Multiple Pregnancies) */}
-      <MaternalEpisodesSection patientId={id} episodes={maternalEpisodes || []} />
-
-      <Tabs defaultValue="profile" className="w-full">
-        <TabsList className="bg-white p-1 rounded-xl border border-gray-100 shadow-sm mb-6 flex flex-wrap h-auto gap-1">
-          {[
-            { value: 'profile',      label: 'Profile' },
-            { value: 'clinical',     label: 'Clinical Observations' },
-            { value: 'prenatal',     label: 'Modular Records' },
-            { value: 'birthplan',    label: 'Birth Plan' },
-            { value: 'files',        label: 'Files & Labs' },
-            { value: 'consultation', label: 'Consultation' },
-          ].map(tab => (
-            <TabsTrigger key={tab.value} value={tab.value}
-              className="rounded-lg px-5 py-2.5 data-[state=active]:bg-rose-500 data-[state=active]:text-white transition-all font-bold text-sm">
-              {tab.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-
-        {/* ─── TAB: Profile ─────────────────────────────── */}
+        {/* ─── TAB: Profile (Includes Decoupled Teleconsultation Summary) ─────────────────────────── */}
         <TabsContent value="profile">
-          <PatientProfileTab patient={patient} />
+          <PatientProfileTab patient={patient} consultationMessages={consultationMessages || []} />
         </TabsContent>
 
-        {/* ─── TAB: Clinical Observations ───────────────── */}
+        {/* ─── TAB: Clinical Observations (Progressive Checkup Form + History) ─── */}
         <TabsContent value="clinical">
-          <Card className="border-none shadow-md">
-            <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
-              <CardTitle>Clinical Visit Logs</CardTitle>
-              <CardDescription>Track all routine prenatal check-ups, vital metrics, and attending clinician notes.</CardDescription>
-            </CardHeader>
-            <CardContent className="p-6">
-              {/* New Visit Form */}
-              <form action={addVisitLog} className="mb-8 p-5 bg-rose-50/30 rounded-2xl border border-rose-100 shadow-sm space-y-5">
-                <div className="flex items-center justify-between border-b border-rose-100 pb-3">
-                  <h3 className="text-base font-bold text-rose-700">Log New Visit</h3>
-                  {activeEpisode && (
-                    <span className="text-xs font-semibold text-rose-600 bg-rose-100/70 px-2.5 py-0.5 rounded-full">
-                      Tied to: {activeEpisode.lmp ? `LMP ${new Date(activeEpisode.lmp).toLocaleDateString()}` : 'Active Episode'}
-                    </span>
-                  )}
-                </div>
-                <input type="hidden" name="patient_id" value={id} />
-                {activeEpisode?.id && (
-                  <input type="hidden" name="maternal_episode_id" value={activeEpisode.id} />
-                )}
+          <PrenatalVisitsTab
+            patientId={id}
+            activeEpisode={activeEpisode}
+            patientAge={patient.age}
+            previousLog={visitLogs?.[0] || null}
+            isHighRisk={patient.is_high_risk}
+            latestUrinalysisProtein={prenatalLabResults?.[0]?.urinalysis_protein}
+            addVisitLogAction={addVisitLog}
+            visitLogs={visitLogs || []}
+            staffMap={staffMap}
+          />
+        </TabsContent>
 
-                {/* Row 1 */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Date</Label>
-                    <Input name="visit_date" type="date" defaultValue={new Date().toISOString().split('T')[0]} className="focus-visible:ring-rose-500 h-9" required />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">AOG by LMP</Label>
-                    <Input name="aog_by_lmp" placeholder="e.g. 28 2/7" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">AOG by UTZ</Label>
-                    <Input name="aog_by_utz" placeholder="e.g. 28 3/7" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">BP</Label>
-                    <Input name="bp" placeholder="120/80" className="h-9 focus-visible:ring-rose-500" required />
-                  </div>
-                </div>
+        {/* ─── TAB: Structured Labs ─────────────────────── */}
+        <TabsContent value="labs">
+          <PrenatalLabsSection
+            patientId={id}
+            activeEpisodeId={activeEpisode?.id}
+            labResults={prenatalLabResults || []}
+            patientBloodType={patient.blood_type}
+          />
+        </TabsContent>
 
-                {/* Row 2 */}
-                <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Temp</Label>
-                    <Input name="temp" placeholder="36.5°C" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">PR</Label>
-                    <Input name="pr" placeholder="80 bpm" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">RR</Label>
-                    <Input name="rr" placeholder="18 rpm" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Wt (kg)</Label>
-                    <Input name="weight" placeholder="62" className="h-9 focus-visible:ring-rose-500" required />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">FH (cm)</Label>
-                    <Input name="fh" placeholder="28" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">FHT</Label>
-                    <Input name="fht" placeholder="140 bpm" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                </div>
-
-                {/* Row 3 */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">IE (Internal Examination)</Label>
-                    <Input name="ie" placeholder="e.g. Cervix closed, effaced 50%" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Next Visit</Label>
-                    <Input name="next_visit" type="date" className="h-9 focus-visible:ring-rose-500" />
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <Label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Doctor's / Midwife's Note</Label>
-                  <textarea
-                    name="doctor_notes"
-                    className="flex min-h-[80px] w-full rounded-md border border-input bg-white px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus-visible:outline-none focus:ring-1 focus:ring-rose-500"
-                    placeholder="Clinical findings, prescriptions, instructions..."
-                    required
-                  />
-                </div>
-                <Button type="submit" className="bg-rose-500 hover:bg-rose-600 text-white rounded-full px-6">
-                  Save Visit Log
-                </Button>
-              </form>
-
-              {/* Visit Log List */}
-              <div className="space-y-4">
-                <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest mb-4">Past Records</h4>
-                {visitLogs && visitLogs.length > 0 ? visitLogs.map((log) => (
-                  <VisitLogCard 
-                    key={log.id} 
-                    log={log} 
-                    patientId={id} 
-                    staffName={staffMap[log.attending_staff_id]}
-                  />
-                )) : (
-                  <div className="py-8 text-center bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-500">No visit logs recorded yet.</p>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+        {/* ─── TAB: Postpartum & DOH Newborn Care (EINC) ─── */}
+        <TabsContent value="postpartum">
+          <PostpartumTabContent
+            patient={patient}
+            activeEpisode={activeEpisode}
+            postpartumRecord={postpartumRecords?.[0] || null}
+            postpartumRecords={postpartumRecords || []}
+          />
         </TabsContent>
 
         {/* ─── TAB: Modular Records ──────────────────────── */}
@@ -507,28 +399,7 @@ export default async function PatientDetailPage({ params }) {
             </CardContent>
           </Card>
         </TabsContent>
-
-        {/* ─── TAB: Consultation ────────────────────────── */}
-        <TabsContent value="consultation">
-          <Card className="border-none shadow-md">
-            <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
-              <CardTitle>Online Consultation Thread</CardTitle>
-              <CardDescription>
-                Live communication with {patient.full_name}. Messages appear instantly on both sides.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <ConsultationThread
-                patientId={id}
-                senderId={staffUser?.id}
-                senderRole="staff"
-                initialMessages={consultationMessages || []}
-                compact={true}
-              />
-            </CardContent>
-          </Card>
-        </TabsContent>
-      </Tabs>
+      </PatientTabsWrapper>
     </div>
   );
 }

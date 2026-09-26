@@ -117,12 +117,25 @@ export function VisitLogCard({ log, patientId, staffName }) {
   }
 
   return (
-    <div className="flex flex-col gap-4 p-5 bg-white border border-gray-100 rounded-2xl shadow-sm hover:border-emerald-100 transition-all group">
+    <div className={`flex flex-col gap-4 p-5 bg-white border rounded-2xl shadow-sm transition-all group ${
+      log.is_high_risk_alert ? 'border-red-200 hover:border-red-300 bg-red-50/10' : 'border-gray-100 hover:border-emerald-100'
+    }`}>
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
           <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">
             {new Date(log.visit_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
           </span>
+          {log.trimester && (
+            <span className="bg-purple-50 text-purple-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-purple-100">
+              {log.trimester}
+            </span>
+          )}
+          {log.is_high_risk_alert && (
+            <span className="bg-red-500 text-white text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider flex items-center gap-1 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+              High-Risk Alert
+            </span>
+          )}
           {log.next_visit && (
             <span className="bg-amber-50 text-amber-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-amber-100">
               Next: {new Date(log.next_visit).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
@@ -140,6 +153,18 @@ export function VisitLogCard({ log, patientId, staffName }) {
           </Button>
         </div>
       </div>
+
+      {/* Render high risk reasons if flagged */}
+      {log.is_high_risk_alert && log.high_risk_reasons && log.high_risk_reasons.length > 0 && (
+        <div className="p-2.5 rounded-xl bg-red-50 border border-red-200/80 text-xs text-red-900 space-y-1">
+          <p className="font-bold text-[10px] uppercase tracking-wider text-red-700">Triggered Maternal Safety Thresholds:</p>
+          <ul className="list-disc list-inside space-y-0.5 text-[11px]">
+            {log.high_risk_reasons.map((r, i) => (
+              <li key={i} className="font-medium">{r}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
         {log.aog_by_lmp && (

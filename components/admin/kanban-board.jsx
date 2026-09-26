@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { KanbanCard } from "./kanban-card";
 import { Button } from "@/components/ui/button";
+import { getClinicTodayDateString } from "@/lib/utils";
 
 const COLUMNS = [
   {
@@ -56,19 +57,21 @@ const COLUMNS = [
 export function KanbanBoard({ 
   appointments = [], 
   staffMap = {},
-  onUpdateTriageStatus 
+  onUpdateTriageStatus,
+  onCheckIn
 }) {
   const [searchQuery, setSearchQuery] = useState("");
   // Step 3 Fix: Default to Today's Schedule Only for Live Ops
   const [filterTodayOnly, setFilterTodayOnly] = useState(true);
 
-  const todayStr = new Date().toISOString().split("T")[0];
+  const todayStr = getClinicTodayDateString();
 
   // Group appointments by triage_status with fallback to 'Waiting'
   const filteredAppointments = useMemo(() => {
     return appointments.filter((appt) => {
-      // Step 3 Fix: Strict Filtering — Only Approved appointments can enter live triage
-      if (appt.status !== "Approved") {
+      // Live Ops Kanban: Show active triage patients (Approved or Completed).
+      // Filter out Pending (must be approved first), Rejected, and Cancelled.
+      if (appt.status === "Pending" || appt.status === "Rejected" || appt.status === "Cancelled") {
         return false;
       }
 
@@ -219,6 +222,7 @@ export function KanbanBoard({
                           appointment={appointment}
                           index={index}
                           staffMap={staffMap}
+                          onCheckIn={onCheckIn}
                         />
                       ))}
                       {provided.placeholder}

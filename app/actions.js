@@ -8,6 +8,20 @@
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { 
+  calculateObstetricDates, 
+  evaluateMaternalVitalsSafety,
+  visitLogValidationSchema,
+  prenatalLabValidationSchema
+} from "@/lib/clinical-protocols";
+import {
+  invoiceValidationSchema,
+  philhealthClaimValidationSchema,
+  calculatePhilHealthDeadline
+} from "@/lib/billing-protocols";
+import { logAuditEvent } from "@/lib/audit-logger";
+import { isStaff, canAccessClinicalRecords, canManageSystemSettings } from "@/lib/rbac";
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AUTHENTICATION HELPERS
@@ -24,7 +38,7 @@ async function verifyAdmin() {
     .eq("id", user.id)
     .single();
 
-  return userData && (userData.role === 'admin' || userData.role === 'staff');
+  return userData && isStaff(userData.role);
 }
 
 async function verifyAuth() {
@@ -349,9 +363,12 @@ export async function updateTriageStatus(appointmentId, newStatus) {
   const supabaseServer = await createClient();
   const updatePayload = { triage_status: status };
   
-  // Smart Dual-State Sync: Discharging a patient automatically completes the appointment
+  // Smart Dual-State Sync: Discharging a patient marks as Completed;
+  // Moving back to an active triage lane (Waiting, Vital Signs, Consultation) marks as Approved!
   if (status === 'Discharged') {
     updatePayload.status = 'Completed';
+  } else {
+    updatePayload.status = 'Approved';
   }
 
   const { error } = await supabaseServer
@@ -364,10 +381,345 @@ export async function updateTriageStatus(appointmentId, newStatus) {
     return { success: false, error: error.message };
   }
 
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'UPDATE_TRIAGE_STATUS',
+    entityType: 'appointments',
+    entityId: apptId,
+    details: {
+      appointment_id: apptId,
+      new_status: status,
+      synced_status: updatePayload.status,
+    }
+  });
+
   revalidatePath('/admin');
   revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
   return { success: true };
 }
+
+/**
+ * fetchAppointments({ startDate, endDate, statusFilter, range })
+ * Optimized query to retrieve appointments with historical date ranges and status filtering.
+ */
+export async function fetchAppointments({ startDate, endDate, statusFilter, range = 'all' } = {}) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const todayStr = getClinicTodayDateString();
+  const today = new Date();
+
+  let query = supabaseServer
+    .from("appointments")
+    .select(`
+      id,
+      service_type,
+      appointment_date,
+      time_preference,
+      notes,
+      status,
+      triage_status,
+      attending_staff_id,
+      is_walk_in,
+      queue_ticket_number,
+      checked_in_at,
+      created_at,
+      patients (
+        id,
+        full_name,
+        contact_number,
+        is_high_risk,
+        allergies
+      )
+    `);
+
+  if (statusFilter && statusFilter !== 'all' && statusFilter !== 'All') {
+    query = query.eq('status', statusFilter);
+  }
+
+  if (range === 'today') {
+    query = query.eq('appointment_date', todayStr);
+  } else if (range === 'yesterday') {
+    const y = new Date(today);
+    y.setDate(y.getDate() - 1);
+    query = query.eq('appointment_date', y.toISOString().split('T')[0]);
+  } else if (range === 'week') {
+    const w = new Date(today);
+    w.setDate(w.getDate() - 7);
+    query = query.gte('appointment_date', w.toISOString().split('T')[0]);
+  } else if (range === 'month') {
+    const m = new Date(today);
+    m.setDate(m.getDate() - 30);
+    query = query.gte('appointment_date', m.toISOString().split('T')[0]);
+  } else if (range === 'custom') {
+    if (startDate) query = query.gte('appointment_date', startDate);
+    if (endDate) query = query.lte('appointment_date', endDate);
+  } else if (startDate || endDate) {
+    if (startDate) query = query.gte('appointment_date', startDate);
+    if (endDate) query = query.lte('appointment_date', endDate);
+  }
+
+  query = query.order('appointment_date', { ascending: false }).order('created_at', { ascending: false });
+
+  const { data, error } = await query;
+  if (error) {
+    console.error('[fetchAppointments] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  return { success: true, appointments: data || [] };
+}
+
+/**
+ * generateNextQueueTicket(supabaseServer, dateStr)
+ * Computes the next daily sequential ticket number e.g. 'Q-01', 'Q-02'
+ */
+async function generateNextQueueTicket(supabaseServer, dateStr) {
+  const { data: existingTickets, error } = await supabaseServer
+    .from('appointments')
+    .select('queue_ticket_number')
+    .eq('appointment_date', dateStr)
+    .not('queue_ticket_number', 'is', null);
+
+  if (error) {
+    console.error('[generateNextQueueTicket] query error:', error.message);
+  }
+
+  let nextNum = 1;
+  if (existingTickets && existingTickets.length > 0) {
+    const numbers = existingTickets
+      .map(t => {
+        const match = (t.queue_ticket_number || '').match(/\d+/);
+        return match ? parseInt(match[0], 10) : 0;
+      })
+      .filter(n => !isNaN(n));
+    if (numbers.length > 0) {
+      nextNum = Math.max(...numbers) + 1;
+    }
+  }
+
+  return `Q-${String(nextNum).padStart(2, '0')}`;
+}
+
+/**
+ * searchPatientsForReception(query)
+ * Allows reception staff to quickly search existing patients by name or contact number
+ */
+export async function searchPatientsForReception(query) {
+  if (!(await verifyAdmin())) return [];
+  if (!query || query.trim().length === 0) return [];
+
+  const supabaseServer = await createClient();
+  const cleanQ = query.trim();
+
+  const { data, error } = await supabaseServer
+    .from('patients')
+    .select('id, full_name, contact_number, age, date_of_birth, allergies, is_high_risk')
+    .or(`full_name.ilike.%${cleanQ}%,contact_number.ilike.%${cleanQ}%`)
+    .limit(10);
+
+  if (error) {
+    console.error('[searchPatientsForReception] error:', error.message);
+    return [];
+  }
+
+  return data || [];
+}
+
+/**
+ * checkInAppointment(appointmentId)
+ * Generates queue ticket and moves appointment to Waiting triage lane
+ */
+export async function checkInAppointment(appointmentId) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!appointmentId) return { success: false, error: 'Missing appointment ID' };
+
+  const supabaseServer = await createClient();
+  const todayStr = getClinicTodayDateString();
+
+  const { data: appt, error: fetchErr } = await supabaseServer
+    .from('appointments')
+    .select('id, appointment_date, queue_ticket_number, status, triage_status')
+    .eq('id', appointmentId)
+    .single();
+
+  if (fetchErr || !appt) {
+    return { success: false, error: fetchErr?.message || 'Appointment not found' };
+  }
+
+  let ticketNumber = appt.queue_ticket_number;
+  if (!ticketNumber) {
+    ticketNumber = await generateNextQueueTicket(supabaseServer, todayStr);
+  }
+
+  const { error: updateErr } = await supabaseServer
+    .from('appointments')
+    .update({
+      appointment_date: todayStr,
+      queue_ticket_number: ticketNumber,
+      status: 'Approved',
+      triage_status: appt.triage_status === 'Discharged' ? 'Discharged' : (appt.triage_status || 'Waiting'),
+      checked_in_at: new Date().toISOString(),
+    })
+    .eq('id', appointmentId);
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
+  return { success: true, ticketNumber };
+}
+
+/**
+ * createWalkInAppointment(formData)
+ * Sub-30s walk-in patient intake: auto-creates patient if new, assigns queue ticket #,
+ * places directly into 'Waiting' or 'Vital Signs' triage lane.
+ */
+export async function createWalkInAppointment(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const todayStr = getClinicTodayDateString();
+  const now = new Date();
+
+  const patientMode = formData.get('patient_mode') || 'existing';
+  let patientId = formData.get('patient_id');
+  const serviceType = formData.get('service_type') || 'general';
+  const notes = formData.get('notes') || '';
+  const attendingStaffId = formData.get('attending_staff_id') || null;
+
+  // Optional quick vitals right at reception
+  const bp = formData.get('blood_pressure') || formData.get('bp');
+  const weight = formData.get('weight');
+  const temp = formData.get('temperature') || formData.get('temp');
+  const hasVitals = !!(bp || weight || temp);
+
+  // Auto determine AM/PM if not provided
+  let timePref = formData.get('time_preference');
+  if (!timePref) {
+    timePref = now.getHours() < 12 ? 'Morning (AM)' : 'Afternoon (PM)';
+  }
+
+  // 1. Patient Resolution
+  if (patientMode === 'new') {
+    const fullName = formData.get('full_name');
+    if (!fullName || !fullName.trim()) {
+      return { success: false, error: 'Patient full name is required for new patient.' };
+    }
+    const contactNumber = formData.get('contact_number') || null;
+    const age = formData.get('age');
+    const allergies = formData.get('allergies') || null;
+    const isHighRisk = formData.get('is_high_risk') === 'true' || formData.get('is_high_risk') === 'on';
+
+    const { data: newPatient, error: patientErr } = await supabaseServer
+      .from('patients')
+      .insert({
+        full_name: fullName.trim(),
+        contact_number: contactNumber,
+        age: age ? parseInt(age, 10) : null,
+        allergies,
+        is_high_risk: isHighRisk,
+        created_at: now.toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (patientErr || !newPatient) {
+      console.error('[createWalkInAppointment] Patient creation error:', patientErr?.message);
+      return { success: false, error: patientErr?.message || 'Failed to create patient record' };
+    }
+
+    patientId = newPatient.id;
+
+    // Auto-create prenatal_records row for clean consistency
+    await supabaseServer
+      .from('prenatal_records')
+      .insert({ patient_id: patientId, modular_data: {} });
+  }
+
+  if (!patientId) {
+    return { success: false, error: 'Please select an existing patient or fill in new patient details.' };
+  }
+
+  // 2. Queue Ticket Assignment
+  const ticketNumber = await generateNextQueueTicket(supabaseServer, todayStr);
+
+  // 3. Insert Appointment
+  const initialTriage = hasVitals ? 'Vital Signs' : 'Waiting';
+  const appointmentPayload = {
+    patient_id: patientId,
+    service_type: serviceType,
+    appointment_date: todayStr,
+    time_preference: timePref,
+    notes: notes ? `[Walk-in] ${notes}` : '[Walk-in Patient]',
+    status: 'Approved',
+    triage_status: initialTriage,
+    is_walk_in: true,
+    queue_ticket_number: ticketNumber,
+    checked_in_at: now.toISOString(),
+  };
+
+  if (attendingStaffId) {
+    appointmentPayload.attending_staff_id = attendingStaffId;
+  }
+
+  const { data: createdAppt, error: apptErr } = await supabaseServer
+    .from('appointments')
+    .insert(appointmentPayload)
+    .select('id')
+    .single();
+
+  if (apptErr) {
+    console.error('[createWalkInAppointment] Appointment creation error:', apptErr.message);
+    return { success: false, error: apptErr.message };
+  }
+
+  // 4. If reception entered quick vitals, log in visit_logs
+  if (hasVitals) {
+    const { data: { user } } = await supabaseServer.auth.getUser();
+    await supabaseServer
+      .from('visit_logs')
+      .insert({
+        patient_id: patientId,
+        attending_staff_id: attendingStaffId || user?.id,
+        bp: bp || null,
+        weight: weight || null,
+        temp: temp || null,
+        doctor_notes: notes || 'Walk-in initial intake vitals',
+        visit_date: todayStr,
+        created_at: now.toISOString(),
+      });
+  }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'REGISTER_WALKIN',
+    entityType: 'appointments',
+    entityId: createdAppt.id,
+    details: {
+      patient_id: patientId,
+      ticket_number: ticketNumber,
+      service_type: serviceType,
+      has_vitals: hasVitals,
+    }
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
+
+  return { 
+    success: true, 
+    appointmentId: createdAppt.id, 
+    ticketNumber,
+    patientId 
+  };
+}
+
 
 /**
  * addVisitLog(formData)
@@ -379,25 +731,93 @@ export async function addVisitLog(formData) {
   const { data: { user } } = await supabaseServer.auth.getUser();
   
   const patient_id          = formData.get('patient_id');
-  const maternal_episode_id = formData.get('maternal_episode_id');
+  const maternal_episode_id = formData.get('maternal_episode_id') || null;
   const attending_staff_id  = user?.id;
   const bp                  = formData.get('bp');
   const weight              = formData.get('weight');
   const doctor_notes        = formData.get('doctor_notes');
-  const visit_date          = formData.get('visit_date') || new Date().toISOString().split('T')[0];
+  const visit_date          = formData.get('visit_date') || getClinicTodayDateString();
 
-  // New clinical fields
-  const aog_by_lmp   = formData.get('aog_by_lmp');
-  const aog_by_utz   = formData.get('aog_by_utz');
-  const temp         = formData.get('temp');
-  const pr           = formData.get('pr');
-  const rr           = formData.get('rr');
-  const fh           = formData.get('fh');
-  const fht          = formData.get('fht');
-  const ie           = formData.get('ie');
+  // Clinical fields
+  let aog_by_lmp   = formData.get('aog_by_lmp');
+  const aog_by_utz   = formData.get('aog_by_utz') || null;
+  const temp         = formData.get('temp') || null;
+  const pr           = formData.get('pr') || null;
+  const rr           = formData.get('rr') || null;
+  const fh           = formData.get('fh') || null;
+  const fht          = formData.get('fht') || null;
+  const ie           = formData.get('ie') || null;
   const next_visit   = formData.get('next_visit') || null;
 
   if (!patient_id) return { success: false, error: 'Missing patient ID.' };
+
+  // Runtime Zod Schema Validation
+  const validationResult = visitLogValidationSchema.safeParse({
+    patient_id,
+    maternal_episode_id,
+    visit_date,
+    bp,
+    weight,
+    temp: temp || null,
+    pr: pr || null,
+    rr: rr || null,
+    fh: fh || null,
+    fht: fht || null,
+    doctor_notes
+  });
+
+  if (!validationResult.success) {
+    const errorMsg = validationResult.error.issues.map(i => i.message).join(', ');
+    return { success: false, error: `Validation Error: ${errorMsg}` };
+  }
+
+  // Fetch patient profile, episode, and latest urinalysis protein for pre-eclampsia cross-referencing
+  const [{ data: patient }, { data: episode }, { data: latestLabs }] = await Promise.all([
+    supabaseServer.from('patients').select('id, age, is_high_risk').eq('id', patient_id).single(),
+    maternal_episode_id 
+      ? supabaseServer.from('maternal_episodes').select('id, lmp, edc, is_high_risk').eq('id', maternal_episode_id).single()
+      : { data: null },
+    supabaseServer
+      .from('prenatal_lab_results')
+      .select('urinalysis_protein')
+      .eq('patient_id', patient_id)
+      .order('test_date', { ascending: false })
+      .limit(1)
+  ]);
+
+  // Dynamic AOG auto-calc if LMP is known and aog_by_lmp not provided
+  let aogWeeks = null;
+  let aogDays = null;
+  let trimester = null;
+
+  if (episode?.lmp) {
+    const obst = calculateObstetricDates(episode.lmp, visit_date);
+    if (obst.isValid) {
+      aogWeeks = obst.aogWeeks;
+      aogDays = obst.aogDays;
+      trimester = obst.trimester;
+      if (!aog_by_lmp) {
+        aog_by_lmp = obst.aogFormatted;
+      }
+    }
+  }
+
+  const latestProtein = latestLabs?.[0]?.urinalysis_protein || null;
+
+  // Safety trigger evaluation with pre-eclampsia triad cross-reference
+  const safety = evaluateMaternalVitalsSafety({
+    bp,
+    weight,
+    temp,
+    pr,
+    rr,
+    fht,
+    age: patient?.age,
+    latestUrinalysisProtein: latestProtein,
+  });
+
+  const is_high_risk_alert = !safety.isSafe;
+  const high_risk_reasons = safety.alerts.map(a => `${a.title}: ${a.action || a.message}`);
 
   const { error } = await supabaseServer
     .from('visit_logs')
@@ -417,13 +837,208 @@ export async function addVisitLog(formData) {
       fh,
       fht,
       ie,
-      next_visit
+      next_visit,
+      is_high_risk_alert,
+      high_risk_reasons,
+      aog_weeks: aogWeeks,
+      aog_days: aogDays,
+      trimester
     });
 
   if (error) {
     console.error('[addVisitLog] error:', error.message);
     return { success: false, error: error.message };
   }
+
+  // Stamping high risk across both patient profile and active pregnancy episode
+  if (safety.shouldFlagHighRisk || formData.get('flag_high_risk') === 'true') {
+    await Promise.all([
+      supabaseServer
+        .from('patients')
+        .update({ is_high_risk: true })
+        .eq('id', patient_id),
+      maternal_episode_id
+        ? supabaseServer
+            .from('maternal_episodes')
+            .update({ is_high_risk: true, high_risk_reasons })
+            .eq('id', maternal_episode_id)
+        : Promise.resolve()
+    ]);
+  }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'LOG_PRENATAL_VISIT',
+    entityType: 'visit_logs',
+    entityId: patient_id,
+    details: {
+      patient_id,
+      maternal_episode_id,
+      visit_date,
+      bp,
+      weight,
+      is_high_risk_alert,
+      high_risk_reasons,
+      aog: aog_by_lmp || (aogWeeks ? `${aogWeeks} ${aogDays}/7` : null),
+    }
+  });
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  revalidatePath('/admin/patients');
+  revalidatePath('/admin/appointments');
+  return { success: true, alerts: safety.alerts };
+}
+
+/**
+ * addPrenatalLabResult(formData)
+ * Saves structured prenatal laboratory panel results with automated clinical anomaly alerts.
+ */
+export async function addPrenatalLabResult(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const { data: { user } } = await supabaseServer.auth.getUser();
+
+  const patient_id           = formData.get('patient_id');
+  const maternal_episode_id  = formData.get('maternal_episode_id') || null;
+  const test_date            = formData.get('test_date') || getClinicTodayDateString();
+  const laboratory_name      = formData.get('laboratory_name') || 'AR-JEN Clinic Laboratory';
+  
+  const hemoglobin           = formData.get('hemoglobin') ? parseFloat(formData.get('hemoglobin')) : null;
+  const hematocrit           = formData.get('hematocrit') ? parseFloat(formData.get('hematocrit')) : null;
+  const blood_type           = formData.get('blood_type') || null;
+  const urinalysis_protein   = formData.get('urinalysis_protein') || null;
+  const urinalysis_glucose   = formData.get('urinalysis_glucose') || null;
+  const urinalysis_pus_cells = formData.get('urinalysis_pus_cells') || null;
+  const urinalysis_rbc       = formData.get('urinalysis_rbc') || null;
+  const hbsag_status         = formData.get('hbsag_status') || 'Pending';
+  const vdrl_rpr_status      = formData.get('vdrl_rpr_status') || 'Pending';
+  const hiv_screening_status = formData.get('hiv_screening_status') || 'Pending';
+  const ogtt_fasting         = formData.get('ogtt_fasting') ? parseFloat(formData.get('ogtt_fasting')) : null;
+  const ogtt_1hr             = formData.get('ogtt_1hr') ? parseFloat(formData.get('ogtt_1hr')) : null;
+  const ogtt_2hr             = formData.get('ogtt_2hr') ? parseFloat(formData.get('ogtt_2hr')) : null;
+  const ultrasound_summary   = formData.get('ultrasound_summary') || null;
+  const remarks              = formData.get('remarks') || null;
+
+  if (!patient_id) return { success: false, error: 'Missing patient ID.' };
+
+  // Runtime Zod Schema Validation
+  const labValidation = prenatalLabValidationSchema.safeParse({
+    patient_id,
+    maternal_episode_id,
+    test_date,
+    hemoglobin,
+    hematocrit,
+    blood_type,
+    urinalysis_protein,
+    urinalysis_glucose,
+    hbsag_status,
+    vdrl_rpr_status,
+    hiv_screening_status,
+    ogtt_fasting,
+    ogtt_1hr,
+    ogtt_2hr,
+  });
+
+  if (!labValidation.success) {
+    const errorMsg = labValidation.error.issues.map(i => i.message).join(', ');
+    return { success: false, error: `Validation Error: ${errorMsg}` };
+  }
+
+  const { error } = await supabaseServer
+    .from('prenatal_lab_results')
+    .insert({
+      patient_id,
+      maternal_episode_id,
+      test_date,
+      laboratory_name,
+      hemoglobin,
+      hematocrit,
+      blood_type,
+      urinalysis_protein,
+      urinalysis_glucose,
+      urinalysis_pus_cells,
+      urinalysis_rbc,
+      hbsag_status,
+      vdrl_rpr_status,
+      hiv_screening_status,
+      ogtt_fasting,
+      ogtt_1hr,
+      ogtt_2hr,
+      ultrasound_summary,
+      remarks,
+      created_by: user?.id,
+    });
+
+  if (error) {
+    console.error('[addPrenatalLabResult] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'RECORD_LAB_PANEL',
+    entityType: 'prenatal_lab_results',
+    entityId: patient_id,
+    details: {
+      patient_id,
+      maternal_episode_id,
+      test_date,
+      blood_type,
+      hemoglobin,
+      hematocrit,
+      urinalysis_protein,
+      remarks,
+    }
+  });
+
+  // Also sync blood_type to patients record if given and not already set
+  if (blood_type) {
+    await supabaseServer
+      .from('patients')
+      .update({ blood_type })
+      .eq('id', patient_id)
+      .is('blood_type', null);
+  }
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  revalidatePath('/admin/patients');
+  return { success: true };
+}
+
+/**
+ * deletePrenatalLabResult(formData)
+ * Removes a prenatal lab entry.
+ */
+export async function deletePrenatalLabResult(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id         = formData.get('id');
+  const patient_id = formData.get('patient_id');
+
+  if (!id) return { success: false, error: 'Missing lab result ID' };
+
+  const { error } = await supabaseServer
+    .from('prenatal_lab_results')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('[deletePrenatalLabResult] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'DELETE_LAB_PANEL',
+    entityType: 'prenatal_lab_results',
+    entityId: id,
+    details: {
+      patient_id,
+      deleted_lab_id: id,
+    }
+  });
 
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
@@ -483,6 +1098,21 @@ export async function updateVisitLog(formData) {
     return { success: false, error: error.message };
   }
 
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'LOG_PRENATAL_VISIT',
+    entityType: 'visit_logs',
+    entityId: id,
+    details: {
+      patient_id,
+      maternal_episode_id,
+      visit_date,
+      bp,
+      weight,
+      mode: 'UPDATE'
+    }
+  });
+
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
 }
@@ -509,6 +1139,17 @@ export async function deleteVisitLog(formData) {
     console.error('[deleteVisitLog] error:', error.message);
     return { success: false, error: error.message };
   }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'DELETE_VISIT_LOG',
+    entityType: 'visit_logs',
+    entityId: id,
+    details: {
+      patient_id,
+      deleted_record_id: id,
+    }
+  });
 
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
@@ -841,35 +1482,160 @@ export async function cancelAppointment(formData) {
 
 /**
  * sendConsultationMessage(formData)
+ * Sends an online consultation message with automated clinical urgency detection and DPA audit logging.
  */
 export async function sendConsultationMessage(formData) {
   if (!(await verifyAuth())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const patient_id = formData.get('patient_id');
-  const sender_id  = formData.get('sender_id');
-  const sender_role = formData.get('sender_role'); 
-  const content    = formData.get('content');
+  const { data: { user } } = await supabaseServer.auth.getUser();
+  if (!user) return { success: false, error: 'User session required' };
 
-  if (!patient_id || !sender_id || !content) {
-    return { success: false, error: "Missing required fields" };
+  const patient_id   = formData.get('patient_id');
+  let sender_id      = formData.get('sender_id') || user.id;
+  let sender_role    = formData.get('sender_role'); 
+  const content      = formData.get('content')?.trim();
+  const explicitUrgent = formData.get('is_urgent') === 'true';
+
+  if (!patient_id || !content) {
+    return { success: false, error: "Missing required patient ID or message content" };
   }
 
-  const { error } = await supabaseServer
+  // 1. Fetch user role from public.users to ensure accurate clinical attribution
+  let resolvedRole = sender_role;
+  let senderName = null;
+
+  const { data: userRecord } = await supabaseServer
+    .from('users')
+    .select('role, full_name, email')
+    .eq('id', user.id)
+    .single();
+
+  if (userRecord?.role) {
+    resolvedRole = userRecord.role;
+    senderName = userRecord.full_name || userRecord.email?.split('@')[0];
+  }
+
+  // Fallback check: if sender is patient, look up patient profile name
+  if (resolvedRole === 'patient' || !resolvedRole) {
+    const { data: patientRecord } = await supabaseServer
+      .from('patients')
+      .select('full_name')
+      .eq('id', patient_id)
+      .single();
+    if (patientRecord?.full_name) {
+      senderName = patientRecord.full_name;
+    }
+    if (!resolvedRole) resolvedRole = 'patient';
+  }
+
+  // 2. Automated Clinical Danger Signs / Obstetric Emergency Keyword Screening (English & Filipino)
+  const dangerKeywords = [
+    'bleeding', 'dugo', 'pagdurugo', 'hemorrhage',
+    'severe pain', 'pananakit', 'matinding sakit', 'sumasakit ang tiyan',
+    'fever', 'lagnat', 'panginginig', 'chills',
+    'fluid', 'panubigan', 'tumatagas', 'water broke', 'leaking',
+    'no movement', 'walang galaw', 'hindi gumagalaw', 'mahinang galaw',
+    'blurred vision', 'nanlalabo', 'nahihilo', 'dizziness', 'severe headache', 'masakit ang ulo',
+    'convulsion', 'kombulsyon', 'manas', 'swelling', 'nausea', 'pagsusuka'
+  ];
+
+  const lowerContent = content.toLowerCase();
+  const hasDangerSign = dangerKeywords.some(keyword => lowerContent.includes(keyword));
+  const isFlaggedUrgent = explicitUrgent || (resolvedRole === 'patient' && hasDangerSign);
+  const urgencyLevel = isFlaggedUrgent ? 'urgent' : 'routine';
+
+  // 3. Insert into consultation_messages
+  const { data: insertedMsg, error } = await supabaseServer
     .from('consultation_messages')
     .insert({
       patient_id,
-      sender_id,
-      sender_role,
-      content
-    });
+      sender_id: user.id,
+      sender_role: resolvedRole,
+      sender_name: senderName,
+      content,
+      is_flagged_urgent: isFlaggedUrgent,
+      urgency_level: urgencyLevel,
+      status: resolvedRole === 'patient' ? 'unread' : 'read',
+    })
+    .select()
+    .single();
 
   if (error) {
     console.error('[sendConsultationMessage] error:', error.message);
     return { success: false, error: error.message };
   }
 
-  revalidatePath(`/patient/consultation`);
+  // 4. DPA 2012 Audit Trail (RA 10173 compliance for teleconsultation communication)
+  await logAuditEvent({
+    action: 'SEND_CONSULTATION_MESSAGE',
+    entityType: 'consultation_messages',
+    entityId: patient_id,
+    details: {
+      patient_id,
+      message_id: insertedMsg?.id,
+      sender_role: resolvedRole,
+      is_flagged_urgent: isFlaggedUrgent,
+      urgency_level: urgencyLevel,
+      content_length: content.length,
+    },
+  });
+
+  revalidatePath('/patient/consultation');
+  revalidatePath('/admin/consultations');
+  revalidatePath(`/admin/patients/${patient_id}`);
+  
+  return { 
+    success: true, 
+    message: insertedMsg, 
+    is_urgent: isFlaggedUrgent,
+    danger_detected: hasDangerSign 
+  };
+}
+
+/**
+ * updateConsultationStatus(formData)
+ * Allows staff to mark an entire consultation thread as resolved, read, or unread.
+ */
+export async function updateConsultationStatus(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const patient_id = formData.get('patient_id');
+  const status     = formData.get('status'); // 'unread' | 'read' | 'resolved'
+
+  if (!patient_id || !status) {
+    return { success: false, error: 'Missing patient ID or status' };
+  }
+
+  const updatePayload = { status };
+  if (status === 'read' || status === 'resolved') {
+    updatePayload.read_at = new Date().toISOString();
+  }
+
+  const { error } = await supabaseServer
+    .from('consultation_messages')
+    .update(updatePayload)
+    .eq('patient_id', patient_id);
+
+  if (error) {
+    console.error('[updateConsultationStatus] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'UPDATE_CONSULTATION_STATUS',
+    entityType: 'consultation_messages',
+    entityId: patient_id,
+    details: {
+      patient_id,
+      new_status: status,
+    },
+  });
+
+  revalidatePath('/admin/consultations');
+  revalidatePath('/patient/consultation');
   revalidatePath(`/admin/patients/${patient_id}`);
   
   return { success: true };
@@ -980,6 +1746,7 @@ export async function createPostpartumRecord(formData) {
 
   const supabaseServer = await createClient();
   const patient_id               = formData.get('patient_id');
+  const maternal_episode_id      = formData.get('maternal_episode_id') || null;
   const delivery_date            = formData.get('delivery_date');
   const delivery_type            = formData.get('delivery_type');
   const maternal_recovery_notes  = formData.get('maternal_recovery_notes') || null;
@@ -993,21 +1760,86 @@ export async function createPostpartumRecord(formData) {
     gender:      formData.get('baby_gender')      || null,
   };
 
+  // Philippine DOH EINC & NCP Protocol Tracking
+  const nbs_filter_card_number       = formData.get('nbs_filter_card_number') || null;
+  const nbs_date_collected           = formData.get('nbs_date_collected') || null;
+  const nbs_status                   = formData.get('nbs_status') || 'Pending';
+  const bcg_given                    = formData.get('bcg_given') === 'on' || formData.get('bcg_given') === 'true';
+  const bcg_date                     = formData.get('bcg_date') || null;
+  const hepb_given                   = formData.get('hepb_given') === 'on' || formData.get('hepb_given') === 'true';
+  const hepb_date                    = formData.get('hepb_date') || null;
+  const vit_k_given                  = formData.get('vit_k_given') === 'on' || formData.get('vit_k_given') === 'true';
+  const eye_prophylaxis_given        = formData.get('eye_prophylaxis_given') === 'on' || formData.get('eye_prophylaxis_given') === 'true';
+  const cord_care_done               = formData.get('cord_care_done') !== 'false';
+  const skin_to_skin_initiated       = formData.get('skin_to_skin_initiated') !== 'false';
+  const early_breastfeeding_initiated = formData.get('early_breastfeeding_initiated') !== 'false';
+  const hearing_screening_status     = formData.get('hearing_screening_status') || 'Pending';
+
   if (!patient_id || !delivery_date) {
     return { success: false, error: 'Patient ID and delivery date are required.' };
   }
 
   const { error } = await supabaseServer
     .from('postpartum_records')
-    .insert({ patient_id, delivery_date, delivery_type, baby_vitals, maternal_recovery_notes, feeding_method, follow_up_date });
+    .insert({ 
+      patient_id, 
+      maternal_episode_id,
+      delivery_date, 
+      delivery_type, 
+      baby_vitals, 
+      maternal_recovery_notes, 
+      feeding_method, 
+      follow_up_date,
+      nbs_filter_card_number,
+      nbs_date_collected,
+      nbs_status,
+      bcg_given,
+      bcg_date,
+      hepb_given,
+      hepb_date,
+      vit_k_given,
+      eye_prophylaxis_given,
+      cord_care_done,
+      skin_to_skin_initiated,
+      early_breastfeeding_initiated,
+      hearing_screening_status,
+    });
 
   if (error) {
     console.error('[createPostpartumRecord] Supabase error:', error.message);
     return { success: false, error: error.message };
   }
 
+  // If maternal episode is linked, automatically complete the pregnancy lifecycle to 'Delivered'
+  if (maternal_episode_id) {
+    await supabaseServer
+      .from('maternal_episodes')
+      .update({ status: 'Delivered' })
+      .eq('id', maternal_episode_id);
+  }
+
+  // DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'RECORD_DELIVERY_EINC',
+    entityType: 'postpartum_records',
+    entityId: patient_id,
+    details: {
+      patient_id,
+      maternal_episode_id,
+      delivery_date,
+      delivery_type,
+      baby_vitals,
+      nbs_card: nbs_filter_card_number,
+      vit_k_given,
+      hepb_given,
+      bcg_given,
+    }
+  });
+
   revalidatePath(`/admin/patients/${patient_id}/postpartum`);
   revalidatePath(`/admin/patients/${patient_id}`);
+  revalidatePath('/admin/patients');
+  revalidatePath('/admin/appointments');
   return { success: true };
 }
 
@@ -1020,6 +1852,8 @@ export async function updatePostpartumRecord(formData) {
   const supabaseServer = await createClient();
   const id                       = formData.get('id');
   const patient_id               = formData.get('patient_id');
+  const maternal_episode_id      = formData.get('maternal_episode_id') || null;
+  const delivery_date            = formData.get('delivery_date') || null;
   const delivery_type            = formData.get('delivery_type') || null;
   const maternal_recovery_notes  = formData.get('maternal_recovery_notes') || null;
   const feeding_method           = formData.get('feeding_method') || null;
@@ -1032,11 +1866,50 @@ export async function updatePostpartumRecord(formData) {
     gender:      formData.get('baby_gender')      || null,
   };
 
+  // Philippine DOH EINC & NCP Protocol Tracking
+  const nbs_filter_card_number       = formData.get('nbs_filter_card_number') || null;
+  const nbs_date_collected           = formData.get('nbs_date_collected') || null;
+  const nbs_status                   = formData.get('nbs_status') || 'Pending';
+  const bcg_given                    = formData.get('bcg_given') === 'on' || formData.get('bcg_given') === 'true';
+  const bcg_date                     = formData.get('bcg_date') || null;
+  const hepb_given                   = formData.get('hepb_given') === 'on' || formData.get('hepb_given') === 'true';
+  const hepb_date                    = formData.get('hepb_date') || null;
+  const vit_k_given                  = formData.get('vit_k_given') === 'on' || formData.get('vit_k_given') === 'true';
+  const eye_prophylaxis_given        = formData.get('eye_prophylaxis_given') === 'on' || formData.get('eye_prophylaxis_given') === 'true';
+  const cord_care_done               = formData.get('cord_care_done') !== 'false';
+  const skin_to_skin_initiated       = formData.get('skin_to_skin_initiated') !== 'false';
+  const early_breastfeeding_initiated = formData.get('early_breastfeeding_initiated') !== 'false';
+  const hearing_screening_status     = formData.get('hearing_screening_status') || 'Pending';
+
   if (!id) return { success: false, error: 'Missing postpartum record ID.' };
+
+  const updatePayload = {
+    delivery_type,
+    baby_vitals,
+    maternal_recovery_notes,
+    feeding_method,
+    follow_up_date,
+    nbs_filter_card_number,
+    nbs_date_collected,
+    nbs_status,
+    bcg_given,
+    bcg_date,
+    hepb_given,
+    hepb_date,
+    vit_k_given,
+    eye_prophylaxis_given,
+    cord_care_done,
+    skin_to_skin_initiated,
+    early_breastfeeding_initiated,
+    hearing_screening_status,
+  };
+
+  if (delivery_date) updatePayload.delivery_date = delivery_date;
+  if (maternal_episode_id) updatePayload.maternal_episode_id = maternal_episode_id;
 
   const { error } = await supabaseServer
     .from('postpartum_records')
-    .update({ delivery_type, baby_vitals, maternal_recovery_notes, feeding_method, follow_up_date })
+    .update(updatePayload)
     .eq('id', id);
 
   if (error) {
@@ -1397,3 +2270,412 @@ export async function updateSEOMetadata(formData) {
   revalidatePath('/admin/cms');
   return { success: true };
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MODULE 3: BILLING, CASHIERING & PHILHEALTH CLAIMS LEDGER (INTERNAL ONLY)
+// STRICT SCOPE: Purely an internal administrative ledger and claim tracker.
+// NO external payment gateways or third-party webhooks.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Generates sequential clinic invoice numbers (e.g. INV-2026-0001)
+ */
+async function generateNextInvoiceNumber(supabaseServer) {
+  const year = new Date().getFullYear();
+  const prefix = `INV-${year}-`;
+  
+  const { data } = await supabaseServer
+    .from('invoices')
+    .select('invoice_number')
+    .ilike('invoice_number', `${prefix}%`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  let nextNum = 1;
+  if (data && data.length > 0 && data[0].invoice_number) {
+    const match = data[0].invoice_number.match(/INV-\d{4}-(\d+)/);
+    if (match) nextNum = parseInt(match[1], 10) + 1;
+  }
+  return `${prefix}${String(nextNum).padStart(4, '0')}`;
+}
+
+/**
+ * Generates sequential PhilHealth claim series numbers (e.g. PH-2026-0001)
+ */
+async function generateNextClaimSeriesNumber(supabaseServer) {
+  const year = new Date().getFullYear();
+  const prefix = `PH-${year}-`;
+  
+  const { data } = await supabaseServer
+    .from('philhealth_claims')
+    .select('claim_series_number')
+    .ilike('claim_series_number', `${prefix}%`)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  let nextNum = 1;
+  if (data && data.length > 0 && data[0].claim_series_number) {
+    const match = data[0].claim_series_number.match(/PH-\d{4}-(\d+)/);
+    if (match) nextNum = parseInt(match[1], 10) + 1;
+  }
+  return `${prefix}${String(nextNum).padStart(4, '0')}`;
+}
+
+/**
+ * createInvoice(payload)
+ * Records an internal clinic invoice and itemized charges.
+ * Supports both FormData and direct JS object.
+ */
+export async function createInvoice(payload) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const { data: { user } } = await supabaseServer.auth.getUser();
+
+  // Normalize payload
+  let data = {};
+  if (payload instanceof FormData) {
+    const rawItems = payload.get('items');
+    let items = [];
+    try {
+      items = typeof rawItems === 'string' ? JSON.parse(rawItems) : [];
+    } catch {
+      items = [];
+    }
+
+    data = {
+      patient_id: payload.get('patient_id'),
+      appointment_id: payload.get('appointment_id') || null,
+      maternal_episode_id: payload.get('maternal_episode_id') || null,
+      subtotal: parseFloat(payload.get('subtotal')) || 0,
+      philhealth_discount: parseFloat(payload.get('philhealth_discount')) || 0,
+      senior_pwd_discount: parseFloat(payload.get('senior_pwd_discount')) || 0,
+      amount_due: parseFloat(payload.get('amount_due')) || 0,
+      amount_paid: parseFloat(payload.get('amount_paid')) || 0,
+      change_given: parseFloat(payload.get('change_given')) || 0,
+      payment_method: payload.get('payment_method') || 'Cash',
+      payment_reference: payload.get('payment_reference') || null,
+      payment_status: payload.get('payment_status') || 'Unpaid',
+      official_receipt_number: payload.get('official_receipt_number') || null,
+      notes: payload.get('notes') || null,
+      items,
+    };
+  } else {
+    data = { ...payload };
+  }
+
+  // Runtime Zod Validation
+  const validation = invoiceValidationSchema.safeParse(data);
+  if (!validation.success) {
+    const errorMsg = validation.error.issues.map(i => i.message).join(', ');
+    return { success: false, error: `Validation Error: ${errorMsg}` };
+  }
+
+  const validData = validation.data;
+  const invoiceNumber = await generateNextInvoiceNumber(supabaseServer);
+
+  // Reconcile payment status
+  let finalStatus = validData.payment_status;
+  if (validData.amount_due <= 0) {
+    finalStatus = 'Paid';
+  } else if (validData.amount_paid >= validData.amount_due) {
+    finalStatus = 'Paid';
+  } else if (validData.amount_paid > 0) {
+    finalStatus = 'Partially Paid';
+  }
+
+  const { data: createdInvoice, error: invError } = await supabaseServer
+    .from('invoices')
+    .insert({
+      invoice_number: invoiceNumber,
+      patient_id: validData.patient_id,
+      appointment_id: validData.appointment_id,
+      maternal_episode_id: validData.maternal_episode_id,
+      subtotal: validData.subtotal,
+      philhealth_discount: validData.philhealth_discount,
+      senior_pwd_discount: validData.senior_pwd_discount,
+      amount_due: validData.amount_due,
+      amount_paid: validData.amount_paid,
+      change_given: validData.change_given,
+      payment_method: validData.payment_method,
+      payment_reference: validData.payment_reference,
+      payment_status: finalStatus,
+      official_receipt_number: validData.official_receipt_number,
+      cashier_id: user?.id || null,
+      notes: validData.notes,
+    })
+    .select('id, invoice_number')
+    .single();
+
+  if (invError) {
+    console.error('[createInvoice] Supabase insert error:', invError.message);
+    return { success: false, error: invError.message };
+  }
+
+  // Insert Line Items
+  const lineItems = validData.items.map(item => ({
+    invoice_id: createdInvoice.id,
+    description: item.description,
+    item_type: item.item_type || 'Service',
+    quantity: item.quantity,
+    unit_price: item.unit_price,
+    total_price: item.total_price,
+  }));
+
+  const { error: itemsError } = await supabaseServer
+    .from('invoice_items')
+    .insert(lineItems);
+
+  if (itemsError) {
+    console.error('[createInvoice] Items insert error:', itemsError.message);
+  }
+
+  // Path Revalidation
+  revalidatePath('/admin/billing');
+  revalidatePath(`/admin/patients/${validData.patient_id}`);
+  if (validData.appointment_id) {
+    revalidatePath('/admin/appointments');
+  }
+
+  return { 
+    success: true, 
+    invoiceId: createdInvoice.id, 
+    invoiceNumber: createdInvoice.invoice_number 
+  };
+}
+
+/**
+ * recordCounterPayment(formData)
+ * Records in-clinic counter payment (Cash, manual GCash ref, or Bank transfer) against an invoice.
+ */
+export async function recordCounterPayment(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const { data: { user } } = await supabaseServer.auth.getUser();
+
+  const invoice_id              = formData.get('invoice_id');
+  const amount_tendered         = parseFloat(formData.get('amount_tendered')) || 0;
+  const payment_method          = formData.get('payment_method') || 'Cash';
+  const payment_reference       = formData.get('payment_reference') || null;
+  const official_receipt_number = formData.get('official_receipt_number') || null;
+  const notes                   = formData.get('notes') || null;
+
+  if (!invoice_id) return { success: false, error: 'Missing Invoice ID' };
+  if (amount_tendered <= 0) return { success: false, error: 'Payment amount must be greater than zero' };
+
+  // Fetch current invoice
+  const { data: invoice, error: fetchErr } = await supabaseServer
+    .from('invoices')
+    .select('*')
+    .eq('id', invoice_id)
+    .single();
+
+  if (fetchErr || !invoice) {
+    return { success: false, error: fetchErr?.message || 'Invoice not found' };
+  }
+
+  const currentPaid = parseFloat(invoice.amount_paid) || 0;
+  const amountDue   = parseFloat(invoice.amount_due) || 0;
+  const newTotalPaid = currentPaid + amount_tendered;
+
+  let newStatus = 'Partially Paid';
+  let changeGiven = 0;
+
+  if (newTotalPaid >= amountDue) {
+    newStatus = 'Paid';
+    changeGiven = newTotalPaid - amountDue;
+  }
+
+  const { error: updateErr } = await supabaseServer
+    .from('invoices')
+    .update({
+      amount_paid: newTotalPaid,
+      change_given: changeGiven,
+      payment_method,
+      payment_reference: payment_reference || invoice.payment_reference,
+      official_receipt_number: official_receipt_number || invoice.official_receipt_number,
+      payment_status: newStatus,
+      cashier_id: user?.id || invoice.cashier_id,
+      notes: notes ? (invoice.notes ? `${invoice.notes}\n[Payment note]: ${notes}` : notes) : invoice.notes,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', invoice_id);
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  revalidatePath('/admin/billing');
+  revalidatePath(`/admin/patients/${invoice.patient_id}`);
+  return { success: true, newStatus, changeGiven };
+}
+
+/**
+ * cancelInvoice(formData)
+ * Voids an internal invoice record.
+ */
+export async function cancelInvoice(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const invoice_id = formData.get('invoice_id');
+  const reason     = formData.get('reason') || 'Cancelled by staff';
+
+  if (!invoice_id) return { success: false, error: 'Missing invoice ID' };
+
+  const { error } = await supabaseServer
+    .from('invoices')
+    .update({ 
+      payment_status: 'Cancelled',
+      notes: `[Voided]: ${reason}`,
+      updated_at: new Date().toISOString()
+    })
+    .eq('id', invoice_id);
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath('/admin/billing');
+  return { success: true };
+}
+
+/**
+ * createPhilHealthClaim(formData)
+ * Logs a new PhilHealth MCP/NCP claim and calculates the statutory 60-day deadline.
+ */
+export async function createPhilHealthClaim(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const { data: { user } } = await supabaseServer.auth.getUser();
+
+  const patient_id           = formData.get('patient_id');
+  const maternal_episode_id  = formData.get('maternal_episode_id') || null;
+  const invoice_id           = formData.get('invoice_id') || null;
+  const package_type         = formData.get('package_type') || 'MCP';
+  const claim_amount         = parseFloat(formData.get('claim_amount')) || 6500;
+  const philhealth_member_id = formData.get('philhealth_member_id') || null;
+  const member_category      = formData.get('member_category') || 'Formal Economy';
+  const patient_relationship = formData.get('patient_relationship') || 'Member';
+  const date_of_delivery     = formData.get('date_of_delivery');
+  const notes                = formData.get('notes') || null;
+
+  if (!patient_id || !date_of_delivery) {
+    return { success: false, error: 'Patient ID and Date of Delivery are required' };
+  }
+
+  // Statutory 60-Day Deadline Calculation
+  const deadlineMetrics = calculatePhilHealthDeadline(date_of_delivery);
+  if (!deadlineMetrics.isValid) {
+    return { success: false, error: 'Invalid delivery date format' };
+  }
+
+  // Runtime Zod Validation
+  const validation = philhealthClaimValidationSchema.safeParse({
+    patient_id,
+    maternal_episode_id,
+    invoice_id,
+    package_type,
+    claim_amount,
+    philhealth_member_id,
+    member_category,
+    patient_relationship,
+    date_of_delivery,
+    notes,
+  });
+
+  if (!validation.success) {
+    const errorMsg = validation.error.issues.map(i => i.message).join(', ');
+    return { success: false, error: `Validation Error: ${errorMsg}` };
+  }
+
+  const claimSeries = await generateNextClaimSeriesNumber(supabaseServer);
+
+  const { data: createdClaim, error } = await supabaseServer
+    .from('philhealth_claims')
+    .insert({
+      claim_series_number: claimSeries,
+      patient_id,
+      maternal_episode_id,
+      invoice_id,
+      package_type,
+      claim_amount,
+      philhealth_member_id,
+      member_category,
+      patient_relationship,
+      status: 'Draft',
+      date_of_delivery,
+      filing_deadline: deadlineMetrics.filingDeadline,
+      notes,
+      created_by: user?.id,
+    })
+    .select('id, claim_series_number')
+    .single();
+
+  if (error) {
+    console.error('[createPhilHealthClaim] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath('/admin/philhealth');
+  revalidatePath('/admin/billing');
+  revalidatePath(`/admin/patients/${patient_id}`);
+
+  return { success: true, claimId: createdClaim.id, claimSeriesNumber: createdClaim.claim_series_number };
+}
+
+/**
+ * updatePhilHealthClaimStatus(formData)
+ * Advances claim through PhilHealth statutory lifecycle stages.
+ */
+export async function updatePhilHealthClaimStatus(formData) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const id                       = formData.get('id');
+  const status                   = formData.get('status');
+  const transmitted_date         = formData.get('transmitted_date') || null;
+  const reimbursed_date          = formData.get('reimbursed_date') || null;
+  const check_or_reference_number = formData.get('check_or_reference_number') || null;
+  const denial_reason            = formData.get('denial_reason') || null;
+  const notes                    = formData.get('notes') || null;
+
+  if (!id || !status) {
+    return { success: false, error: 'Missing claim ID or status' };
+  }
+
+  const updatePayload = {
+    status,
+    updated_at: new Date().toISOString(),
+  };
+
+  if (transmitted_date) updatePayload.transmitted_date = transmitted_date;
+  if (reimbursed_date) updatePayload.reimbursed_date = reimbursed_date;
+  if (check_or_reference_number) updatePayload.check_or_reference_number = check_or_reference_number;
+  if (denial_reason) updatePayload.denial_reason = denial_reason;
+  if (notes) updatePayload.notes = notes;
+
+  // Auto-set timestamps if advancing status without explicit date
+  const today = new Date().toISOString().split('T')[0];
+  if (status === 'Transmitted' && !updatePayload.transmitted_date) {
+    updatePayload.transmitted_date = today;
+  }
+  if (status === 'Approved_Reimbursed' && !updatePayload.reimbursed_date) {
+    updatePayload.reimbursed_date = today;
+  }
+
+  const { error } = await supabaseServer
+    .from('philhealth_claims')
+    .update(updatePayload)
+    .eq('id', id);
+
+  if (error) {
+    console.error('[updatePhilHealthClaimStatus] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath('/admin/philhealth');
+  revalidatePath('/admin/billing');
+  return { success: true };
+}
+

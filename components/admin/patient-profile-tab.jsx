@@ -7,6 +7,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { updatePatient } from '@/app/actions';
 
+import { TeleconsultSummaryCard } from '@/components/admin/clinical/teleconsult-summary-card';
+
 const BLOOD_TYPES = ['A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-'];
 
 function InfoRow({ label, value }) {
@@ -18,7 +20,7 @@ function InfoRow({ label, value }) {
   );
 }
 
-export function PatientProfileTab({ patient }) {
+export function PatientProfileTab({ patient, consultationMessages = [] }) {
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState(null);
@@ -36,6 +38,11 @@ export function PatientProfileTab({ patient }) {
       }
     });
   };
+
+  const hasRealAllergies = Boolean(
+    patient?.allergies && 
+    !['na', 'n/a', 'none', 'no', 'nil', '-', 'none documented'].includes(patient.allergies.trim().toLowerCase())
+  );
 
   if (!editing) {
     return (
@@ -58,12 +65,28 @@ export function PatientProfileTab({ patient }) {
             </p>
           </div>
 
-          <div className="bg-amber-50/80 border border-amber-200 rounded-2xl p-5 text-amber-900">
-            <p className="text-xs font-black uppercase tracking-widest mb-1 text-amber-600">Known Allergies & Contraindications</p>
-            <p className="text-base font-bold">
-              {patient.allergies || <span className="text-amber-500 font-normal italic">No documented drug or food allergies</span>}
+          <div className={`rounded-2xl p-5 border transition-all ${
+            hasRealAllergies
+              ? 'bg-amber-50/80 border-amber-200 text-amber-900'
+              : 'bg-emerald-50/60 border-emerald-200/60 text-emerald-900'
+          }`}>
+            <p className={`text-xs font-black uppercase tracking-widest mb-1 ${
+              hasRealAllergies ? 'text-amber-600' : 'text-emerald-600'
+            }`}>
+              Known Allergies & Contraindications
             </p>
-            <p className="text-xs text-amber-700 mt-1">Cross-check before administering antibiotics or anesthesia.</p>
+            <p className={`text-base font-bold ${
+              hasRealAllergies ? 'text-amber-900' : 'text-emerald-800 font-semibold'
+            }`}>
+              {hasRealAllergies ? patient.allergies : 'No Documented Allergies'}
+            </p>
+            <p className={`text-xs mt-1 ${
+              hasRealAllergies ? 'text-amber-700' : 'text-emerald-600/80'
+            }`}>
+              {hasRealAllergies 
+                ? 'Cross-check before administering antibiotics or anesthesia.' 
+                : 'No drug or food hypersensitivities documented in chart.'}
+            </p>
           </div>
         </div>
 
@@ -76,7 +99,7 @@ export function PatientProfileTab({ patient }) {
               </div>
               <h3 className="font-black text-gray-900">Demographic & Contact Info</h3>
             </div>
-            <Button onClick={() => setEditing(true)} variant="outline" size="sm" className="gap-2 hover:border-emerald-300 hover:text-emerald-700">
+            <Button onClick={() => setEditing(true)} variant="outline" size="sm" className="gap-2 hover:border-emerald-300 hover:text-emerald-700 rounded-xl">
               <Pencil className="w-3.5 h-3.5" /> Edit Profile
             </Button>
           </div>
@@ -94,6 +117,13 @@ export function PatientProfileTab({ patient }) {
             </div>
           </div>
         </div>
+
+        {/* Teleconsultation Summary Card (Decoupled from legal EMR tabs) */}
+        <TeleconsultSummaryCard
+          patientId={patient.id}
+          patientName={patient.full_name}
+          messages={consultationMessages}
+        />
       </div>
     );
   }

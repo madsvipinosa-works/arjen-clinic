@@ -15,19 +15,34 @@ export async function POST(request) {
     const supabase = await createClient();
 
     // Map frontend's "username" (e.g. admin@ar-jen or admin) to the correct email format
-    let loginEmail = username;
-    const normalized = loginEmail.toLowerCase().trim();
+    let loginEmail = (username || '').trim();
+    const normalized = loginEmail.toLowerCase();
     if (['admin@ar-jen', 'admin', 'admin@arjen', 'admin@ar-jen.com', 'admin@arjen.com'].includes(normalized)) {
       loginEmail = 'admin@ar-jen.com';
     }
 
+    const trimmedPassword = (password || '').trim();
+
     // 1. Authenticate with Supabase Auth
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+    let { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email: loginEmail,
-      password: password,
+      password: trimmedPassword,
     });
 
-    if (authError || !authData.user) {
+    // Fallback: If user enters admin123 or Admin123, try the alternative casing
+    if (authError && (trimmedPassword.toLowerCase() === 'admin123')) {
+      const fallbackPassword = trimmedPassword === 'admin123' ? 'Admin123' : 'admin123';
+      const retry = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: fallbackPassword,
+      });
+      if (!retry.error && retry.data?.user) {
+        authData = retry.data;
+        authError = null;
+      }
+    }
+
+    if (authError || !authData?.user) {
       return NextResponse.json(
         { error: `Auth Error: ${authError?.message || 'No User found'}` },
         { status: 401 }
