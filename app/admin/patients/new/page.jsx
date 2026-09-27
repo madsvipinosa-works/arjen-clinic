@@ -4,19 +4,26 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { BreadcrumbTrail } from '@/components/admin/shared/breadcrumb-trail';
 import Link from 'next/link';
 import { ArrowLeft, UserPlus } from 'lucide-react';
 
 export default function NewPatientPage() {
   return (
-    <div className="max-w-4xl">
-      {/* Header */}
-      <div className="mb-8 flex items-center gap-4">
+    <div className="max-w-4xl space-y-6">
+      {/* Breadcrumb Trail */}
+      <div className="flex items-center justify-between">
+        <BreadcrumbTrail
+          items={[
+            { label: 'Patient Directory', href: '/admin/patients' },
+            { label: 'Register New Patient', isCurrent: true },
+          ]}
+        />
         <Link
           href="/admin/patients"
-          className="flex items-center gap-2 text-sm text-gray-500 hover:text-gray-800 font-semibold transition-colors"
+          className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-800 font-semibold transition-colors"
         >
-          <ArrowLeft className="w-4 h-4" /> Back to Patients
+          <ArrowLeft className="w-3.5 h-3.5" /> Back to Directory
         </Link>
       </div>
 

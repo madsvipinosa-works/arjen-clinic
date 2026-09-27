@@ -6,6 +6,7 @@ import {
   AlertTriangle, Sparkles, Syringe, Eye, Award, Pencil, 
   Plus, ChevronDown, ChevronUp, Clock, Activity, FileText, Check, X, ArrowLeft
 } from 'lucide-react';
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -181,36 +182,25 @@ export function PostpartumTabContent({
         </div>
       )}
 
-      {/* ── MODE 1: EDIT / RECORD FORM (Appears right at the top when toggled) ── */}
-      {isEditing ? (
-        <form onSubmit={handleSubmit} className="space-y-6 animate-in fade-in slide-in-from-top-2 duration-200">
-          {/* Hidden inputs */}
-          <input type="hidden" name="patient_id" value={patient.id} />
-          {activeEpisode?.id && <input type="hidden" name="maternal_episode_id" value={activeEpisode.id} />}
-          {isUpdate && <input type="hidden" name="id" value={currentRecord.id} />}
-
-          <div className="bg-white/95 backdrop-blur-md border border-rose-200/90 rounded-3xl p-6 md:p-8 shadow-sm space-y-6">
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-              <div>
-                <h3 className="text-base font-black text-gray-900 tracking-tight flex items-center gap-2">
-                  <Pencil className="w-4 h-4 text-rose-500" />
-                  {isUpdate ? 'Edit Postpartum & Newborn Record' : 'Record New Delivery & Newborn Care'}
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Fulfills PhilHealth Maternal & Newborn Care Package (MCP / NCP) statutory data requirements.
-                </p>
-              </div>
-
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setIsEditing(false)}
-                className="text-gray-400 hover:text-gray-700 rounded-xl text-xs gap-1.5 font-bold"
-              >
-                <X className="w-3.5 h-3.5" />
-                <span>Cancel</span>
-              </Button>
-            </div>
+      {/* ── MODE 1: EDIT / RECORD FORM IN SLIDE-OVER (Sheet) ── */}
+      <Sheet open={isEditing} onOpenChange={setIsEditing}>
+        <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto bg-white/95 backdrop-blur-xl border-l border-rose-100 p-0 shadow-2xl">
+          <SheetHeader className="p-6 border-b border-gray-100 bg-white/80 sticky top-0 z-10 backdrop-blur-md">
+            <SheetTitle className="text-lg font-black text-gray-900 tracking-tight flex items-center gap-2">
+              <Pencil className="w-5 h-5 text-rose-500" />
+              {isUpdate ? 'Edit Postpartum & Newborn Record' : 'Record New Delivery & Newborn Care'}
+            </SheetTitle>
+            <SheetDescription className="text-xs text-gray-500">
+              Fulfills PhilHealth Maternal & Newborn Care Package (MCP / NCP) statutory data requirements.
+            </SheetDescription>
+          </SheetHeader>
+          
+          <div className="p-6 pb-24">
+            <form id="postpartum-form" onSubmit={handleSubmit} className="space-y-8 animate-in fade-in duration-200">
+              {/* Hidden inputs */}
+              <input type="hidden" name="patient_id" value={patient.id} />
+              {activeEpisode?.id && <input type="hidden" name="maternal_episode_id" value={activeEpisode.id} />}
+              {isUpdate && <input type="hidden" name="id" value={currentRecord.id} />}
 
             {/* Form Section 1: Delivery Details */}
             <div className="space-y-3">
@@ -542,28 +532,32 @@ export function PostpartumTabContent({
               />
             </div>
 
-            {/* Actions */}
-            <div className="flex items-center justify-end gap-3 pt-4 border-t border-gray-100">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setIsEditing(false)}
-                className="rounded-2xl text-xs font-bold h-11 px-6"
-                disabled={isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={isPending}
-                className="bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-bold rounded-2xl h-11 px-8 text-xs shadow-md shadow-rose-500/20 active:scale-[0.98] transition-all"
-              >
-                {isPending ? 'Saving...' : isUpdate ? 'Update Delivery & Newborn Record' : 'Save Delivery & Newborn Record'}
-              </Button>
-            </div>
+            </form>
           </div>
-        </form>
-      ) : currentRecord ? (
+          
+          <div className="fixed bottom-0 left-0 right-0 p-4 border-t border-gray-100 bg-white/95 backdrop-blur-md flex items-center justify-end gap-3 z-10">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsEditing(false)}
+              className="rounded-xl text-xs font-bold h-11 px-6"
+              disabled={isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="submit"
+              form="postpartum-form"
+              disabled={isPending}
+              className="bg-gradient-to-r from-rose-500 to-rose-600 hover:from-rose-600 hover:to-rose-700 text-white font-bold rounded-xl h-11 px-8 text-xs shadow-md shadow-rose-500/20 active:scale-[0.98] transition-all"
+            >
+              {isPending ? 'Saving...' : isUpdate ? 'Update Record' : 'Save Record'}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      {currentRecord ? (
         /* ── MODE 2: BENTO GRID CLINICAL SNAPSHOT (View Mode) ── */
         <div className="space-y-6 animate-in fade-in duration-200">
           {/* Bento Grid Tier 1: Delivery Details, Newborn Anthropometrics, DOH Compliance */}

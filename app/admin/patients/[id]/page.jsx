@@ -23,6 +23,7 @@ import { PatientClinicalHeader } from '@/components/admin/clinical/patient-clini
 import { PrenatalVisitsTab } from '@/components/admin/clinical/prenatal-visits-tab';
 import { PostpartumTabContent } from '@/components/admin/clinical/postpartum-tab-content';
 import { PatientTabsWrapper } from '@/components/admin/clinical/patient-tabs-wrapper';
+import { BreadcrumbTrail } from '@/components/admin/shared/breadcrumb-trail';
 import { Baby, FlaskConical } from 'lucide-react';
 import Link from 'next/link';
 
@@ -81,6 +82,16 @@ export default async function PatientDetailPage({ params, searchParams }) {
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
+      {/* ── Breadcrumb Navigation Trail ── */}
+      <div className="flex items-center justify-between">
+        <BreadcrumbTrail
+          items={[
+            { label: 'Patient Directory', href: '/admin/patients' },
+            { label: patient.full_name || 'Patient Chart', isCurrent: true },
+          ]}
+        />
+      </div>
+
       {/* ── 3-Second Clinical Snapshot Banner & Maternal Episode Switcher ── */}
       <PatientClinicalHeader
         patient={patient}

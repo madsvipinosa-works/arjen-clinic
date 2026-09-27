@@ -31,7 +31,7 @@ export function PatientTabsWrapper({
       onValueChange={handleTabChange}
       className="w-full"
     >
-      <TabsList className="bg-white p-1 rounded-xl border border-gray-100 shadow-sm mb-6 flex flex-wrap h-auto gap-1">
+      <TabsList className="bg-white p-1.5 rounded-2xl border border-gray-100 shadow-sm mb-8 flex flex-wrap h-auto gap-1.5">
         {tabs.map((tab) => (
           <TabsTrigger
             key={tab.value}

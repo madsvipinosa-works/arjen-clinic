@@ -1,7 +1,8 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { Sidebar } from "@/components/blocks/modern-side-bar";
+import { AppSidebar } from "@/components/ui/whatsapp-sidebar";
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 
 export default function AdminLayout({ children }) {
   const pathname = usePathname();
@@ -12,11 +13,13 @@ export default function AdminLayout({ children }) {
   }
 
   return (
-    <Sidebar>
-      <div className="p-6 md:p-8 bg-white/50 w-full min-h-full">
-        {children}
-      </div>
-    </Sidebar>
+    <SidebarProvider>
+      <AppSidebar />
+      <SidebarInset>
+        <main className="p-6 md:p-8 bg-slate-50/50 w-full min-h-full">
+          {children}
+        </main>
+      </SidebarInset>
+    </SidebarProvider>
   );
 }
-
