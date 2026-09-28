@@ -16,8 +16,7 @@ import {
   Plus, Trash2, FileUp, FileIcon,
   ImageIcon, ExternalLink, AlertTriangle, ShieldAlert
 } from 'lucide-react';
-import { ModularRecordEditor } from '@/components/admin/modular-record-editor';
-import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
+import { ClinicalOverviewBento } from '@/components/admin/clinical/clinical-overview-bento';
 import { PrenatalLabsSection } from '@/components/admin/clinical/prenatal-labs-section';
 import { PatientClinicalHeader } from '@/components/admin/clinical/patient-clinical-header';
 import { PrenatalVisitsTab } from '@/components/admin/clinical/prenatal-visits-tab';
@@ -83,13 +82,29 @@ export default async function PatientDetailPage({ params, searchParams }) {
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
       {/* ── Breadcrumb Navigation Trail ── */}
-      <div className="flex items-center justify-between">
-        <BreadcrumbTrail
-          items={[
-            { label: 'Patient Directory', href: '/admin/patients' },
-            { label: patient.full_name || 'Patient Chart', isCurrent: true },
-          ]}
-        />
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          <BreadcrumbTrail
+            items={[
+              { label: 'Patient Directory', href: '/admin/patients' },
+              { label: patient.full_name || 'Patient Chart', isCurrent: true },
+            ]}
+          />
+          <span className="font-mono text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
+            #{patient.id.slice(0, 8).toUpperCase()}
+          </span>
+          {patient.is_high_risk ? (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping" />
+              High Risk Monitoring
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+              Standard Care
+            </span>
+          )}
+        </div>
       </div>
 
       {/* ── 3-Second Clinical Snapshot Banner & Maternal Episode Switcher ── */}
@@ -99,24 +114,33 @@ export default async function PatientDetailPage({ params, searchParams }) {
         activeEpisode={activeEpisode}
         birthPlan={birthPlan}
         id={id}
+        latestVisitLog={visitLogs?.[0] || null}
       />
 
       <PatientTabsWrapper
         defaultTab={defaultTab}
         tabs={[
-          { value: 'profile',      label: 'Profile' },
-          { value: 'clinical',     label: 'Clinical Observations' },
-          { value: 'labs',         label: 'Structured Labs' },
-          { value: 'postpartum',   label: 'Postpartum & Newborn' },
-          { value: 'prenatal',     label: 'Modular Records' },
-          { value: 'birthplan',    label: 'Birth Plan' },
-          { value: 'files',        label: 'Files & Uploads' },
+          { value: 'profile',      label: 'Overview & Profile' },
+          { value: 'clinical',     label: 'Prenatal Visits' },
+          { value: 'labs',         label: 'Structured Labs & Ultrasound' },
+          { value: 'postpartum',   label: 'Postpartum & Newborn Care' },
+          { value: 'birthplan',    label: 'Birth Plan & Documents' },
         ]}
       >
 
-        {/* ─── TAB: Profile (Includes Decoupled Teleconsultation Summary) ─────────────────────────── */}
+        {/* ─── TAB: Overview & Profile (Bento Grid Workspace) ─────────────────────────── */}
         <TabsContent value="profile">
-          <PatientProfileTab patient={patient} consultationMessages={consultationMessages || []} />
+          <ClinicalOverviewBento
+            patient={patient}
+            activeEpisode={activeEpisode}
+            latestVisitLog={visitLogs?.[0] || null}
+            latestLabResult={prenatalLabResults?.[0] || null}
+            postpartumRecord={postpartumRecords?.[0] || null}
+            birthPlan={birthPlan}
+            consultationMessages={consultationMessages || []}
+            modularData={prenatalRecord?.modular_data}
+            updateModularData={updateModularData}
+          />
         </TabsContent>
 
         {/* ─── TAB: Clinical Observations (Progressive Checkup Form + History) ─── */}
@@ -154,17 +178,8 @@ export default async function PatientDetailPage({ params, searchParams }) {
           />
         </TabsContent>
 
-        {/* ─── TAB: Modular Records ──────────────────────── */}
-        <TabsContent value="prenatal">
-          <ModularRecordEditor
-            patientId={id}
-            initialModularData={prenatalRecord?.modular_data}
-            updateModularData={updateModularData}
-          />
-        </TabsContent>
-
-        {/* ─── TAB: Birth Plan ──────────────────────────── */}
-        <TabsContent value="birthplan">
+        {/* ─── TAB: Birth Plan & Medical Documents ──────────────────── */}
+        <TabsContent value="birthplan" className="space-y-6">
           <Card className="border-none shadow-md">
             <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
               <CardTitle>Birth Plan</CardTitle>
@@ -305,16 +320,12 @@ export default async function PatientDetailPage({ params, searchParams }) {
               </details>
             </CardContent>
           </Card>
-        </TabsContent>
 
-
-
-        {/* ─── TAB: Files & Labs ────────────────────────── */}
-        <TabsContent value="files">
+          {/* ── Patient Files, Ultrasounds & Lab Documents ── */}
           <Card className="border-none shadow-md">
             <CardHeader className="border-b bg-gray-50/50 pb-6 rounded-t-xl">
-              <CardTitle>Files & Lab Results</CardTitle>
-              <CardDescription>Manage ultrasound images, PDF lab results, and other medical documents.</CardDescription>
+              <CardTitle>Medical Documents &amp; Uploads</CardTitle>
+              <CardDescription>Manage ultrasound scans, PDF lab results, and patient consent documents.</CardDescription>
             </CardHeader>
             <CardContent className="p-6">
               {/* Upload Form */}

@@ -6,12 +6,13 @@ import { useRouter } from 'next/navigation';
 import {
   Baby, AlertTriangle, ShieldAlert, Calendar, ChevronDown,
   Plus, Pencil, Sparkles, Phone, User, HeartPulse, CheckCircle2,
-  X, Droplets, ShieldCheck, Clock
+  X, Droplets, ShieldCheck, Clock, Ambulance
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PrintRecordButton } from '@/components/admin/patients/print-record-button';
+import { EmergencyTransferModal } from '@/components/admin/clinical/emergency-transfer-modal';
 import { calculateObstetricDates } from '@/lib/clinical-protocols';
 import { createMaternalEpisode, updateMaternalEpisode } from '@/app/actions';
 
@@ -20,11 +21,13 @@ export function PatientClinicalHeader({
   maternalEpisodes = [],
   activeEpisode = null,
   birthPlan = null,
-  id
+  id,
+  latestVisitLog = null
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [showEpisodeModal, setShowEpisodeModal] = useState(false);
+  const [showTransferModal, setShowTransferModal] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [error, setError] = useState(null);
 
@@ -104,17 +107,10 @@ export function PatientClinicalHeader({
 
   return (
     <div className="mb-6 space-y-3">
-      {/* ── Breadcrumb Navigation ────────────────────── */}
-      <div className="flex items-center gap-2 text-xs text-gray-400 font-medium">
-        <Link href="/admin" className="hover:text-rose-600 transition-colors">Admin</Link>
-        <span>/</span>
-        <Link href="/admin/patients" className="hover:text-rose-600 transition-colors">Patients</Link>
-        <span>/</span>
-        <span className="text-gray-900 font-bold">{patient?.full_name || 'Medical Record'}</span>
-      </div>
-
       {/* ── Main Bento Grid Clinical Snapshot Card ─────────────── */}
-      <div className="bg-white/95 backdrop-blur-md border border-gray-200/90 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 p-5 md:p-6 space-y-5">
+      <div className="bg-white/95 backdrop-blur-md border border-gray-200/90 rounded-3xl shadow-sm hover:shadow-md transition-all duration-300 p-5 md:p-6 space-y-5 relative overflow-hidden">
+        {/* Ambient Top Subtle Accent Bar */}
+        <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-rose-500 via-rose-300 to-teal-500" />
         
         {/* Top Tier: Patient Avatar, Demographics & Quick Actions */}
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5 pb-5 border-b border-gray-100">
@@ -243,11 +239,21 @@ export function PatientClinicalHeader({
           </div>
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-2.5 self-start lg:self-center shrink-0">
+          <div className="flex flex-wrap items-center gap-2 self-start lg:self-center shrink-0">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowTransferModal(true)}
+              className="border-red-200 text-red-700 hover:bg-red-50 hover:border-red-300 rounded-2xl font-bold gap-2 h-10 px-3.5 text-xs shadow-2xs active:scale-[0.98] transition-all"
+            >
+              <Ambulance className="w-4 h-4 text-red-500" />
+              <span>Emergency Transfer Slip</span>
+            </Button>
+
             <Link href={`/admin/patients/${id}?tab=postpartum`}>
               <Button
                 variant="outline"
-                className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300 rounded-2xl font-bold gap-2 h-10 px-4 text-xs shadow-xs active:scale-[0.98] transition-all"
+                className="border-rose-200 text-rose-700 hover:bg-rose-50 hover:border-rose-300 rounded-2xl font-bold gap-2 h-10 px-3.5 text-xs shadow-2xs active:scale-[0.98] transition-all"
               >
                 <Baby className="w-4 h-4 text-rose-500" />
                 <span>Postpartum Care</span>
@@ -563,6 +569,16 @@ export function PatientClinicalHeader({
           </div>
         </div>
       )}
+
+      {/* ── Modal: Emergency Obstetric Transfer Slip ── */}
+      <EmergencyTransferModal
+        patient={patient}
+        activeEpisode={activeEpisode}
+        obstetricData={obstetricData}
+        latestVisitLog={latestVisitLog}
+        isOpen={showTransferModal}
+        onClose={() => setShowTransferModal(false)}
+      />
     </div>
   );
 }
