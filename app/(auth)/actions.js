@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
+import { sendEmail } from "@/utils/email";
 
 /**
  * Logs out the current user.
@@ -160,18 +161,62 @@ export async function createAppointment(formData) {
     }
   }
 
+  // Sprint 2: Smart Triage Auto-Approval Engine
+  let initialStatus = 'Pending';
+  
+  // 1. Fetch patient risk profile & attendance history
+  const { data: patientData } = await supabase
+    .from('patients')
+    .select('is_high_risk, appointments(status)')
+    .eq('id', patientId)
+    .single();
+
+  if (patientData) {
+    const isHighRisk = patientData.is_high_risk === true;
+    const hasNoShows = patientData.appointments?.some(a => a.status === 'No-Show');
+    const isRoutine = service_type?.toLowerCase().includes('prenatal') || 
+                      service_type?.toLowerCase().includes('routine') || 
+                      service_type?.toLowerCase().includes('consult');
+
+    // 2. Auto-approve if conditions are met (capacity already checked above)
+    if (!isHighRisk && !hasNoShows && isRoutine) {
+      initialStatus = 'Approved';
+      console.log(`[Auto-Approval] Appointment for Patient ${patientId} instantly approved.`);
+      
+      // Fire Email Notification (Replacing SMS for Sprint 3)
+      if (user.email) {
+        await sendEmail({
+          to: user.email,
+          subject: "Appointment Auto-Approved - AR-JEN Clinic",
+          html: `
+            <div style="font-family: sans-serif; padding: 20px;">
+              <h2 style="color: #059669;">Your Appointment is Approved!</h2>
+              <p>Hi there,</p>
+              <p>Great news! Your <strong>${service_type}</strong> appointment on <strong>${appointment_date}</strong> for the <strong>${time}</strong> shift has been instantly approved by our Smart Triage system.</p>
+              <p>No further manual review is needed. Please remember to bring your Pink Mother & Child passport (if applicable) and arrive 15 minutes early.</p>
+              <br/>
+              <p>See you soon!</p>
+              <p><strong>AR-JEN Maternity Clinic</strong></p>
+            </div>
+          `
+        });
+      }
+    }
+  }
+
   // Save the appointment with augmented payloads
   const { error } = await supabase.from('appointments').insert({ 
     patient_id: patientId, 
     service_type, 
     appointment_date,
     time_preference: time,
-    notes: notes
+    notes: notes,
+    status: initialStatus
   });
 
   if (error) {
     redirect(`/book?error=${encodeURIComponent(error.message)}`);
   }
 
-  redirect("/book?success=true");
+  redirect(`/book?success=true&status=${initialStatus}`);
 }

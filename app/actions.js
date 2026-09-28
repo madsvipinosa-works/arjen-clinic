@@ -8,8 +8,8 @@
 import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { 
-  calculateObstetricDates, 
+import {
+  calculateObstetricDates,
   evaluateMaternalVitalsSafety,
   visitLogValidationSchema,
   prenatalLabValidationSchema
@@ -21,6 +21,7 @@ import {
 } from "@/lib/billing-protocols";
 import { logAuditEvent } from "@/lib/audit-logger";
 import { isStaff, canAccessClinicalRecords, canManageSystemSettings } from "@/lib/rbac";
+import { getClinicTodayDateString } from "@/lib/utils";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -31,7 +32,7 @@ async function verifyAdmin() {
   const supabaseServer = await createClient();
   const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
   if (authError || !user) return false;
-  
+
   const { data: userData } = await supabaseServer
     .from("users")
     .select("role")
@@ -57,24 +58,24 @@ async function verifyAuth() {
  */
 export async function createVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-  
-  const patientId  = formData.get('patient_id');  
-  const visitDate  = formData.get('visit_date');  
-  const bloodPressure = formData.get('blood_pressure'); 
-  const weight     = formData.get('weight');       
-  const notes      = formData.get('notes');        
+
+  const patientId = formData.get('patient_id');
+  const visitDate = formData.get('visit_date');
+  const bloodPressure = formData.get('blood_pressure');
+  const weight = formData.get('weight');
+  const notes = formData.get('notes');
 
   if (!patientId || !visitDate) {
     return { success: false, error: 'Patient ID and visit date are required.' };
   }
 
   const newLog = {
-    patient_id:     patientId,
-    visit_date:     visitDate,
+    patient_id: patientId,
+    visit_date: visitDate,
     blood_pressure: bloodPressure,
-    weight:         weight,
-    notes:          notes,
-    created_at:     new Date().toISOString(), 
+    weight: weight,
+    notes: notes,
+    created_at: new Date().toISOString(),
   };
 
   const supabaseServer = await createClient();
@@ -96,16 +97,16 @@ export async function createVisitLog(formData) {
 export async function createPatient(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
-  const full_name           = formData.get('full_name');
-  const date_of_birth       = formData.get('date_of_birth') || null;
-  const age                 = formData.get('age');
-  const civil_status        = formData.get('civil_status') || null;
+  const full_name = formData.get('full_name');
+  const date_of_birth = formData.get('date_of_birth') || null;
+  const age = formData.get('age');
+  const civil_status = formData.get('civil_status') || null;
   const husband_partner_name = formData.get('husband_partner_name') || null;
-  const address             = formData.get('address') || null;
-  const contact_number      = formData.get('contact_number') || null;
-  const blood_type          = formData.get('blood_type') || null;
-  const allergies           = formData.get('allergies') || null;
-  const is_high_risk        = formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true';
+  const address = formData.get('address') || null;
+  const contact_number = formData.get('contact_number') || null;
+  const blood_type = formData.get('blood_type') || null;
+  const allergies = formData.get('allergies') || null;
+  const is_high_risk = formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true';
 
   if (!full_name) {
     return { success: false, error: 'Patient full name is required.' };
@@ -159,16 +160,16 @@ export async function updatePatient(formData) {
   if (!id) return { success: false, error: 'Missing patient ID.' };
 
   const updateData = {
-    full_name:             formData.get('full_name'),
-    date_of_birth:         formData.get('date_of_birth') || null,
-    age:                   formData.get('age') ? parseInt(formData.get('age'), 10) : null,
-    civil_status:          formData.get('civil_status') || null,
-    husband_partner_name:  formData.get('husband_partner_name') || null,
-    address:               formData.get('address') || null,
-    contact_number:        formData.get('contact_number') || null,
-    blood_type:            formData.get('blood_type') || null,
-    allergies:             formData.get('allergies') || null,
-    is_high_risk:          formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true',
+    full_name: formData.get('full_name'),
+    date_of_birth: formData.get('date_of_birth') || null,
+    age: formData.get('age') ? parseInt(formData.get('age'), 10) : null,
+    civil_status: formData.get('civil_status') || null,
+    husband_partner_name: formData.get('husband_partner_name') || null,
+    address: formData.get('address') || null,
+    contact_number: formData.get('contact_number') || null,
+    blood_type: formData.get('blood_type') || null,
+    allergies: formData.get('allergies') || null,
+    is_high_risk: formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true',
   };
 
   const { error } = await supabaseServer
@@ -194,14 +195,14 @@ export async function createMaternalEpisode(formData) {
 
   const supabaseServer = await createClient();
   const patient_id = formData.get('patient_id');
-  
+
   if (!patient_id) return { success: false, error: 'Missing patient ID' };
-  
+
   const lmp = formData.get('lmp') || null;
   const edc = lmp
     ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     : null;
-    
+
   const newEpisode = {
     patient_id,
     lmp,
@@ -210,14 +211,14 @@ export async function createMaternalEpisode(formData) {
     para: formData.get('para') ? parseInt(formData.get('para'), 10) : null,
     status: formData.get('status') || 'Active'
   };
-  
+
   const { error } = await supabaseServer.from('maternal_episodes').insert(newEpisode);
-  
+
   if (error) {
     console.error('[createMaternalEpisode] error:', error.message);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
 }
@@ -231,14 +232,14 @@ export async function updateMaternalEpisode(formData) {
   const supabaseServer = await createClient();
   const id = formData.get('id');
   const patient_id = formData.get('patient_id');
-  
+
   if (!id) return { success: false, error: 'Missing episode ID' };
-  
+
   const lmp = formData.get('lmp') || null;
   const edc = lmp
     ? new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
     : null;
-    
+
   const updateData = {
     lmp,
     edc,
@@ -246,14 +247,14 @@ export async function updateMaternalEpisode(formData) {
     para: formData.get('para') ? parseInt(formData.get('para'), 10) : null,
     status: formData.get('status') || 'Active'
   };
-  
+
   const { error } = await supabaseServer.from('maternal_episodes').update(updateData).eq('id', id);
-  
+
   if (error) {
     console.error('[updateMaternalEpisode] error:', error.message);
     return { success: false, error: error.message };
   }
-  
+
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
 }
@@ -267,9 +268,9 @@ export async function updateModularData(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const patient_id  = formData.get('patient_id');
-  const module_id   = formData.get('module_id');
-  const content     = formData.get('content');
+  const patient_id = formData.get('patient_id');
+  const module_id = formData.get('module_id');
+  const content = formData.get('content');
 
   if (!patient_id || !module_id) return { success: false, error: 'Missing patient_id or module_id.' };
 
@@ -362,7 +363,7 @@ export async function updateTriageStatus(appointmentId, newStatus) {
 
   const supabaseServer = await createClient();
   const updatePayload = { triage_status: status };
-  
+
   // Smart Dual-State Sync: Discharging a patient marks as Completed;
   // Moving back to an active triage lane (Waiting, Vital Signs, Consultation) marks as Approved!
   if (status === 'Discharged') {
@@ -712,11 +713,11 @@ export async function createWalkInAppointment(formData) {
   revalidatePath('/admin/appointments');
   revalidatePath('/queue');
 
-  return { 
-    success: true, 
-    appointmentId: createdAppt.id, 
+  return {
+    success: true,
+    appointmentId: createdAppt.id,
     ticketNumber,
-    patientId 
+    patientId
   };
 }
 
@@ -729,25 +730,25 @@ export async function addVisitLog(formData) {
 
   const supabaseServer = await createClient();
   const { data: { user } } = await supabaseServer.auth.getUser();
-  
-  const patient_id          = formData.get('patient_id');
+
+  const patient_id = formData.get('patient_id');
   const maternal_episode_id = formData.get('maternal_episode_id') || null;
-  const attending_staff_id  = user?.id;
-  const bp                  = formData.get('bp');
-  const weight              = formData.get('weight');
-  const doctor_notes        = formData.get('doctor_notes');
-  const visit_date          = formData.get('visit_date') || getClinicTodayDateString();
+  const attending_staff_id = user?.id;
+  const bp = formData.get('bp');
+  const weight = formData.get('weight');
+  const doctor_notes = formData.get('doctor_notes');
+  const visit_date = formData.get('visit_date') || getClinicTodayDateString();
 
   // Clinical fields
-  let aog_by_lmp   = formData.get('aog_by_lmp');
-  const aog_by_utz   = formData.get('aog_by_utz') || null;
-  const temp         = formData.get('temp') || null;
-  const pr           = formData.get('pr') || null;
-  const rr           = formData.get('rr') || null;
-  const fh           = formData.get('fh') || null;
-  const fht          = formData.get('fht') || null;
-  const ie           = formData.get('ie') || null;
-  const next_visit   = formData.get('next_visit') || null;
+  let aog_by_lmp = formData.get('aog_by_lmp');
+  const aog_by_utz = formData.get('aog_by_utz') || null;
+  const temp = formData.get('temp') || null;
+  const pr = formData.get('pr') || null;
+  const rr = formData.get('rr') || null;
+  const fh = formData.get('fh') || null;
+  const fht = formData.get('fht') || null;
+  const ie = formData.get('ie') || null;
+  const next_visit = formData.get('next_visit') || null;
 
   if (!patient_id) return { success: false, error: 'Missing patient ID.' };
 
@@ -774,7 +775,7 @@ export async function addVisitLog(formData) {
   // Fetch patient profile, episode, and latest urinalysis protein for pre-eclampsia cross-referencing
   const [{ data: patient }, { data: episode }, { data: latestLabs }] = await Promise.all([
     supabaseServer.from('patients').select('id, age, is_high_risk').eq('id', patient_id).single(),
-    maternal_episode_id 
+    maternal_episode_id
       ? supabaseServer.from('maternal_episodes').select('id, lmp, edc, is_high_risk').eq('id', maternal_episode_id).single()
       : { data: null },
     supabaseServer
@@ -821,13 +822,13 @@ export async function addVisitLog(formData) {
 
   const { error } = await supabaseServer
     .from('visit_logs')
-    .insert({ 
+    .insert({
       patient_id,
       maternal_episode_id,
       attending_staff_id,
-      bp, 
-      weight, 
-      doctor_notes, 
+      bp,
+      weight,
+      doctor_notes,
       visit_date,
       aog_by_lmp,
       aog_by_utz,
@@ -859,9 +860,9 @@ export async function addVisitLog(formData) {
         .eq('id', patient_id),
       maternal_episode_id
         ? supabaseServer
-            .from('maternal_episodes')
-            .update({ is_high_risk: true, high_risk_reasons })
-            .eq('id', maternal_episode_id)
+          .from('maternal_episodes')
+          .update({ is_high_risk: true, high_risk_reasons })
+          .eq('id', maternal_episode_id)
         : Promise.resolve()
     ]);
   }
@@ -899,26 +900,26 @@ export async function addPrenatalLabResult(formData) {
   const supabaseServer = await createClient();
   const { data: { user } } = await supabaseServer.auth.getUser();
 
-  const patient_id           = formData.get('patient_id');
-  const maternal_episode_id  = formData.get('maternal_episode_id') || null;
-  const test_date            = formData.get('test_date') || getClinicTodayDateString();
-  const laboratory_name      = formData.get('laboratory_name') || 'AR-JEN Clinic Laboratory';
-  
-  const hemoglobin           = formData.get('hemoglobin') ? parseFloat(formData.get('hemoglobin')) : null;
-  const hematocrit           = formData.get('hematocrit') ? parseFloat(formData.get('hematocrit')) : null;
-  const blood_type           = formData.get('blood_type') || null;
-  const urinalysis_protein   = formData.get('urinalysis_protein') || null;
-  const urinalysis_glucose   = formData.get('urinalysis_glucose') || null;
+  const patient_id = formData.get('patient_id');
+  const maternal_episode_id = formData.get('maternal_episode_id') || null;
+  const test_date = formData.get('test_date') || getClinicTodayDateString();
+  const laboratory_name = formData.get('laboratory_name') || 'AR-JEN Clinic Laboratory';
+
+  const hemoglobin = formData.get('hemoglobin') ? parseFloat(formData.get('hemoglobin')) : null;
+  const hematocrit = formData.get('hematocrit') ? parseFloat(formData.get('hematocrit')) : null;
+  const blood_type = formData.get('blood_type') || null;
+  const urinalysis_protein = formData.get('urinalysis_protein') || null;
+  const urinalysis_glucose = formData.get('urinalysis_glucose') || null;
   const urinalysis_pus_cells = formData.get('urinalysis_pus_cells') || null;
-  const urinalysis_rbc       = formData.get('urinalysis_rbc') || null;
-  const hbsag_status         = formData.get('hbsag_status') || 'Pending';
-  const vdrl_rpr_status      = formData.get('vdrl_rpr_status') || 'Pending';
+  const urinalysis_rbc = formData.get('urinalysis_rbc') || null;
+  const hbsag_status = formData.get('hbsag_status') || 'Pending';
+  const vdrl_rpr_status = formData.get('vdrl_rpr_status') || 'Pending';
   const hiv_screening_status = formData.get('hiv_screening_status') || 'Pending';
-  const ogtt_fasting         = formData.get('ogtt_fasting') ? parseFloat(formData.get('ogtt_fasting')) : null;
-  const ogtt_1hr             = formData.get('ogtt_1hr') ? parseFloat(formData.get('ogtt_1hr')) : null;
-  const ogtt_2hr             = formData.get('ogtt_2hr') ? parseFloat(formData.get('ogtt_2hr')) : null;
-  const ultrasound_summary   = formData.get('ultrasound_summary') || null;
-  const remarks              = formData.get('remarks') || null;
+  const ogtt_fasting = formData.get('ogtt_fasting') ? parseFloat(formData.get('ogtt_fasting')) : null;
+  const ogtt_1hr = formData.get('ogtt_1hr') ? parseFloat(formData.get('ogtt_1hr')) : null;
+  const ogtt_2hr = formData.get('ogtt_2hr') ? parseFloat(formData.get('ogtt_2hr')) : null;
+  const ultrasound_summary = formData.get('ultrasound_summary') || null;
+  const remarks = formData.get('remarks') || null;
 
   if (!patient_id) return { success: false, error: 'Missing patient ID.' };
 
@@ -1014,7 +1015,7 @@ export async function deletePrenatalLabResult(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id         = formData.get('id');
+  const id = formData.get('id');
   const patient_id = formData.get('patient_id');
 
   if (!id) return { success: false, error: 'Missing lab result ID' };
@@ -1052,34 +1053,34 @@ export async function updateVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id                  = formData.get('id');
-  const patient_id          = formData.get('patient_id');
+  const id = formData.get('id');
+  const patient_id = formData.get('patient_id');
   const maternal_episode_id = formData.get('maternal_episode_id');
-  const bp                  = formData.get('bp');
-  const weight              = formData.get('weight');
-  const doctor_notes        = formData.get('doctor_notes');
-  const visit_date          = formData.get('visit_date');
+  const bp = formData.get('bp');
+  const weight = formData.get('weight');
+  const doctor_notes = formData.get('doctor_notes');
+  const visit_date = formData.get('visit_date');
 
   // New clinical fields
-  const aog_by_lmp   = formData.get('aog_by_lmp');
-  const aog_by_utz   = formData.get('aog_by_utz');
-  const temp         = formData.get('temp');
-  const pr           = formData.get('pr');
-  const rr           = formData.get('rr');
-  const fh           = formData.get('fh');
-  const fht          = formData.get('fht');
-  const ie           = formData.get('ie');
-  const next_visit   = formData.get('next_visit') || null;
+  const aog_by_lmp = formData.get('aog_by_lmp');
+  const aog_by_utz = formData.get('aog_by_utz');
+  const temp = formData.get('temp');
+  const pr = formData.get('pr');
+  const rr = formData.get('rr');
+  const fh = formData.get('fh');
+  const fht = formData.get('fht');
+  const ie = formData.get('ie');
+  const next_visit = formData.get('next_visit') || null;
 
   if (!id) return { success: false, error: 'Missing log ID.' };
 
   const { error } = await supabaseServer
     .from('visit_logs')
-    .update({ 
+    .update({
       maternal_episode_id,
-      bp, 
-      weight, 
-      doctor_notes, 
+      bp,
+      weight,
+      doctor_notes,
       visit_date,
       aog_by_lmp,
       aog_by_utz,
@@ -1125,7 +1126,7 @@ export async function deleteVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id         = formData.get('id');
+  const id = formData.get('id');
   const patient_id = formData.get('patient_id');
 
   if (!id) return { success: false, error: 'Missing log ID.' };
@@ -1163,26 +1164,26 @@ export async function updateBirthPlan(formData) {
 
   const supabaseServer = await createClient();
   const patient_id = formData.get('patient_id');
-  
+
   if (!patient_id) return { success: false, error: 'Missing patient ID.' };
 
   const updateData = {
     patient_id,
-    delivery_location:      formData.get('delivery_location'),
-    birth_attendant:        formData.get('birth_attendant'),
-    companion_type:         formData.get('companion_type'),
-    companion_family_name:  formData.get('companion_family_name'),
+    delivery_location: formData.get('delivery_location'),
+    birth_attendant: formData.get('birth_attendant'),
+    companion_type: formData.get('companion_type'),
+    companion_family_name: formData.get('companion_family_name'),
     is_philhealth_facility: formData.get('is_philhealth_facility'),
-    is_philhealth_member:   formData.get('is_philhealth_member'),
-    philhealth_number:      formData.get('philhealth_number'),
-    payment_method:         formData.get('payment_method'),
+    is_philhealth_member: formData.get('is_philhealth_member'),
+    philhealth_number: formData.get('philhealth_number'),
+    payment_method: formData.get('payment_method'),
     // Keep these for backward compatibility or future use if they aren't on the main paper form
-    transportation:         formData.get('transportation'),
-    companion_name:         formData.get('companion_name'),
-    emergency_name:         formData.get('emergency_name'),
-    emergency_contact:      formData.get('emergency_contact'),
-    backup_hospital_type:   formData.get('backup_hospital_type'),
-    blood_donor_contact:    formData.get('blood_donor_contact'),
+    transportation: formData.get('transportation'),
+    companion_name: formData.get('companion_name'),
+    emergency_name: formData.get('emergency_name'),
+    emergency_contact: formData.get('emergency_contact'),
+    backup_hospital_type: formData.get('backup_hospital_type'),
+    blood_donor_contact: formData.get('blood_donor_contact'),
   };
 
   const { error } = await supabaseServer
@@ -1213,10 +1214,10 @@ export async function updatePrenatal(formData) {
 
   const { error } = await supabaseServer
     .from('prenatal_records')
-    .upsert({ 
-      patient_id, 
-      health_history: { details: health_history }, 
-      lab_results: { details: lab_results } 
+    .upsert({
+      patient_id,
+      health_history: { details: health_history },
+      lab_results: { details: lab_results }
     }, { onConflict: 'patient_id' });
 
   if (error) {
@@ -1272,7 +1273,7 @@ export async function updateServices(servicesJson) {
  */
 export async function addBlockedDate(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-  
+
   const supabaseServer = await createClient();
   const blocked_date = formData.get('blocked_date');
   const reason = formData.get('reason');
@@ -1307,8 +1308,8 @@ export async function addTimeSlot(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const start_time = formData.get('start_time'); 
-  const end_time   = formData.get('end_time');   
+  const start_time = formData.get('start_time');
+  const end_time = formData.get('end_time');
   const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
 
   if (!start_time || !end_time) return;
@@ -1358,9 +1359,9 @@ export async function updateTimeSlot(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id           = formData.get('id');
-  const start_time   = formData.get('start_time');
-  const end_time     = formData.get('end_time');
+  const id = formData.get('id');
+  const start_time = formData.get('start_time');
+  const end_time = formData.get('end_time');
   const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
 
   if (!id || !start_time || !end_time) return;
@@ -1462,7 +1463,7 @@ export async function cancelAppointment(formData) {
 
   const supabaseServer = await createClient();
   const id = formData.get('id');
-  
+
   if (!id) return { success: false, error: "Missing ID" };
 
   const { error } = await supabaseServer
@@ -1491,10 +1492,10 @@ export async function sendConsultationMessage(formData) {
   const { data: { user } } = await supabaseServer.auth.getUser();
   if (!user) return { success: false, error: 'User session required' };
 
-  const patient_id   = formData.get('patient_id');
-  let sender_id      = formData.get('sender_id') || user.id;
-  let sender_role    = formData.get('sender_role'); 
-  const content      = formData.get('content')?.trim();
+  const patient_id = formData.get('patient_id');
+  let sender_id = formData.get('sender_id') || user.id;
+  let sender_role = formData.get('sender_role');
+  const content = formData.get('content')?.trim();
   const explicitUrgent = formData.get('is_urgent') === 'true';
 
   if (!patient_id || !content) {
@@ -1584,12 +1585,12 @@ export async function sendConsultationMessage(formData) {
   revalidatePath('/patient/consultation');
   revalidatePath('/admin/consultations');
   revalidatePath(`/admin/patients/${patient_id}`);
-  
-  return { 
-    success: true, 
-    message: insertedMsg, 
+
+  return {
+    success: true,
+    message: insertedMsg,
     is_urgent: isFlaggedUrgent,
-    danger_detected: hasDangerSign 
+    danger_detected: hasDangerSign
   };
 }
 
@@ -1602,7 +1603,7 @@ export async function updateConsultationStatus(formData) {
 
   const supabaseServer = await createClient();
   const patient_id = formData.get('patient_id');
-  const status     = formData.get('status'); // 'unread' | 'read' | 'resolved'
+  const status = formData.get('status'); // 'unread' | 'read' | 'resolved'
 
   if (!patient_id || !status) {
     return { success: false, error: 'Missing patient ID or status' };
@@ -1637,7 +1638,7 @@ export async function updateConsultationStatus(formData) {
   revalidatePath('/admin/consultations');
   revalidatePath('/patient/consultation');
   revalidatePath(`/admin/patients/${patient_id}`);
-  
+
   return { success: true };
 }
 
@@ -1649,7 +1650,7 @@ export async function uploadAttachment(formData) {
 
   const supabaseServer = await createClient();
   const patient_id = formData.get('patient_id');
-  const file = formData.get('file'); 
+  const file = formData.get('file');
   const category = formData.get('category') || 'Lab Result';
 
   if (!patient_id || !file || file.size === 0) {
@@ -1745,35 +1746,35 @@ export async function createPostpartumRecord(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const patient_id               = formData.get('patient_id');
-  const maternal_episode_id      = formData.get('maternal_episode_id') || null;
-  const delivery_date            = formData.get('delivery_date');
-  const delivery_type            = formData.get('delivery_type');
-  const maternal_recovery_notes  = formData.get('maternal_recovery_notes') || null;
-  const feeding_method           = formData.get('feeding_method') || null;
-  const follow_up_date           = formData.get('follow_up_date') || null;
+  const patient_id = formData.get('patient_id');
+  const maternal_episode_id = formData.get('maternal_episode_id') || null;
+  const delivery_date = formData.get('delivery_date');
+  const delivery_type = formData.get('delivery_type');
+  const maternal_recovery_notes = formData.get('maternal_recovery_notes') || null;
+  const feeding_method = formData.get('feeding_method') || null;
+  const follow_up_date = formData.get('follow_up_date') || null;
 
   const baby_vitals = {
-    weight_kg:   formData.get('baby_weight_kg')   || null,
-    length_cm:   formData.get('baby_length_cm')   || null,
+    weight_kg: formData.get('baby_weight_kg') || null,
+    length_cm: formData.get('baby_length_cm') || null,
     apgar_score: formData.get('baby_apgar_score') || null,
-    gender:      formData.get('baby_gender')      || null,
+    gender: formData.get('baby_gender') || null,
   };
 
   // Philippine DOH EINC & NCP Protocol Tracking
-  const nbs_filter_card_number       = formData.get('nbs_filter_card_number') || null;
-  const nbs_date_collected           = formData.get('nbs_date_collected') || null;
-  const nbs_status                   = formData.get('nbs_status') || 'Pending';
-  const bcg_given                    = formData.get('bcg_given') === 'on' || formData.get('bcg_given') === 'true';
-  const bcg_date                     = formData.get('bcg_date') || null;
-  const hepb_given                   = formData.get('hepb_given') === 'on' || formData.get('hepb_given') === 'true';
-  const hepb_date                    = formData.get('hepb_date') || null;
-  const vit_k_given                  = formData.get('vit_k_given') === 'on' || formData.get('vit_k_given') === 'true';
-  const eye_prophylaxis_given        = formData.get('eye_prophylaxis_given') === 'on' || formData.get('eye_prophylaxis_given') === 'true';
-  const cord_care_done               = formData.get('cord_care_done') !== 'false';
-  const skin_to_skin_initiated       = formData.get('skin_to_skin_initiated') !== 'false';
+  const nbs_filter_card_number = formData.get('nbs_filter_card_number') || null;
+  const nbs_date_collected = formData.get('nbs_date_collected') || null;
+  const nbs_status = formData.get('nbs_status') || 'Pending';
+  const bcg_given = formData.get('bcg_given') === 'on' || formData.get('bcg_given') === 'true';
+  const bcg_date = formData.get('bcg_date') || null;
+  const hepb_given = formData.get('hepb_given') === 'on' || formData.get('hepb_given') === 'true';
+  const hepb_date = formData.get('hepb_date') || null;
+  const vit_k_given = formData.get('vit_k_given') === 'on' || formData.get('vit_k_given') === 'true';
+  const eye_prophylaxis_given = formData.get('eye_prophylaxis_given') === 'on' || formData.get('eye_prophylaxis_given') === 'true';
+  const cord_care_done = formData.get('cord_care_done') !== 'false';
+  const skin_to_skin_initiated = formData.get('skin_to_skin_initiated') !== 'false';
   const early_breastfeeding_initiated = formData.get('early_breastfeeding_initiated') !== 'false';
-  const hearing_screening_status     = formData.get('hearing_screening_status') || 'Pending';
+  const hearing_screening_status = formData.get('hearing_screening_status') || 'Pending';
 
   if (!patient_id || !delivery_date) {
     return { success: false, error: 'Patient ID and delivery date are required.' };
@@ -1781,14 +1782,14 @@ export async function createPostpartumRecord(formData) {
 
   const { error } = await supabaseServer
     .from('postpartum_records')
-    .insert({ 
-      patient_id, 
+    .insert({
+      patient_id,
       maternal_episode_id,
-      delivery_date, 
-      delivery_type, 
-      baby_vitals, 
-      maternal_recovery_notes, 
-      feeding_method, 
+      delivery_date,
+      delivery_type,
+      baby_vitals,
+      maternal_recovery_notes,
+      feeding_method,
       follow_up_date,
       nbs_filter_card_number,
       nbs_date_collected,
@@ -1850,36 +1851,36 @@ export async function updatePostpartumRecord(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id                       = formData.get('id');
-  const patient_id               = formData.get('patient_id');
-  const maternal_episode_id      = formData.get('maternal_episode_id') || null;
-  const delivery_date            = formData.get('delivery_date') || null;
-  const delivery_type            = formData.get('delivery_type') || null;
-  const maternal_recovery_notes  = formData.get('maternal_recovery_notes') || null;
-  const feeding_method           = formData.get('feeding_method') || null;
-  const follow_up_date           = formData.get('follow_up_date') || null;
+  const id = formData.get('id');
+  const patient_id = formData.get('patient_id');
+  const maternal_episode_id = formData.get('maternal_episode_id') || null;
+  const delivery_date = formData.get('delivery_date') || null;
+  const delivery_type = formData.get('delivery_type') || null;
+  const maternal_recovery_notes = formData.get('maternal_recovery_notes') || null;
+  const feeding_method = formData.get('feeding_method') || null;
+  const follow_up_date = formData.get('follow_up_date') || null;
 
   const baby_vitals = {
-    weight_kg:   formData.get('baby_weight_kg')   || null,
-    length_cm:   formData.get('baby_length_cm')   || null,
+    weight_kg: formData.get('baby_weight_kg') || null,
+    length_cm: formData.get('baby_length_cm') || null,
     apgar_score: formData.get('baby_apgar_score') || null,
-    gender:      formData.get('baby_gender')      || null,
+    gender: formData.get('baby_gender') || null,
   };
 
   // Philippine DOH EINC & NCP Protocol Tracking
-  const nbs_filter_card_number       = formData.get('nbs_filter_card_number') || null;
-  const nbs_date_collected           = formData.get('nbs_date_collected') || null;
-  const nbs_status                   = formData.get('nbs_status') || 'Pending';
-  const bcg_given                    = formData.get('bcg_given') === 'on' || formData.get('bcg_given') === 'true';
-  const bcg_date                     = formData.get('bcg_date') || null;
-  const hepb_given                   = formData.get('hepb_given') === 'on' || formData.get('hepb_given') === 'true';
-  const hepb_date                    = formData.get('hepb_date') || null;
-  const vit_k_given                  = formData.get('vit_k_given') === 'on' || formData.get('vit_k_given') === 'true';
-  const eye_prophylaxis_given        = formData.get('eye_prophylaxis_given') === 'on' || formData.get('eye_prophylaxis_given') === 'true';
-  const cord_care_done               = formData.get('cord_care_done') !== 'false';
-  const skin_to_skin_initiated       = formData.get('skin_to_skin_initiated') !== 'false';
+  const nbs_filter_card_number = formData.get('nbs_filter_card_number') || null;
+  const nbs_date_collected = formData.get('nbs_date_collected') || null;
+  const nbs_status = formData.get('nbs_status') || 'Pending';
+  const bcg_given = formData.get('bcg_given') === 'on' || formData.get('bcg_given') === 'true';
+  const bcg_date = formData.get('bcg_date') || null;
+  const hepb_given = formData.get('hepb_given') === 'on' || formData.get('hepb_given') === 'true';
+  const hepb_date = formData.get('hepb_date') || null;
+  const vit_k_given = formData.get('vit_k_given') === 'on' || formData.get('vit_k_given') === 'true';
+  const eye_prophylaxis_given = formData.get('eye_prophylaxis_given') === 'on' || formData.get('eye_prophylaxis_given') === 'true';
+  const cord_care_done = formData.get('cord_care_done') !== 'false';
+  const skin_to_skin_initiated = formData.get('skin_to_skin_initiated') !== 'false';
   const early_breastfeeding_initiated = formData.get('early_breastfeeding_initiated') !== 'false';
-  const hearing_screening_status     = formData.get('hearing_screening_status') || 'Pending';
+  const hearing_screening_status = formData.get('hearing_screening_status') || 'Pending';
 
   if (!id) return { success: false, error: 'Missing postpartum record ID.' };
 
@@ -2184,7 +2185,7 @@ export async function updateAboutContent(formData) {
   const supabaseServer = await createClient();
   const about_title = formData.get('about_title');
   const about_description = formData.get('about_description');
-  
+
   let trust_points = [];
   try {
     const raw = formData.get('trust_points');
@@ -2215,7 +2216,7 @@ export async function updateFooterContent(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  
+
   const clinic_address = formData.get('clinic_address');
   const clinic_contact = formData.get('clinic_contact');
   const footer_email = formData.get('footer_email');
@@ -2283,7 +2284,7 @@ export async function updateSEOMetadata(formData) {
 async function generateNextInvoiceNumber(supabaseServer) {
   const year = new Date().getFullYear();
   const prefix = `INV-${year}-`;
-  
+
   const { data } = await supabaseServer
     .from('invoices')
     .select('invoice_number')
@@ -2305,7 +2306,7 @@ async function generateNextInvoiceNumber(supabaseServer) {
 async function generateNextClaimSeriesNumber(supabaseServer) {
   const year = new Date().getFullYear();
   const prefix = `PH-${year}-`;
-  
+
   const { data } = await supabaseServer
     .from('philhealth_claims')
     .select('claim_series_number')
@@ -2437,10 +2438,10 @@ export async function createInvoice(payload) {
     revalidatePath('/admin/appointments');
   }
 
-  return { 
-    success: true, 
-    invoiceId: createdInvoice.id, 
-    invoiceNumber: createdInvoice.invoice_number 
+  return {
+    success: true,
+    invoiceId: createdInvoice.id,
+    invoiceNumber: createdInvoice.invoice_number
   };
 }
 
@@ -2454,12 +2455,12 @@ export async function recordCounterPayment(formData) {
   const supabaseServer = await createClient();
   const { data: { user } } = await supabaseServer.auth.getUser();
 
-  const invoice_id              = formData.get('invoice_id');
-  const amount_tendered         = parseFloat(formData.get('amount_tendered')) || 0;
-  const payment_method          = formData.get('payment_method') || 'Cash';
-  const payment_reference       = formData.get('payment_reference') || null;
+  const invoice_id = formData.get('invoice_id');
+  const amount_tendered = parseFloat(formData.get('amount_tendered')) || 0;
+  const payment_method = formData.get('payment_method') || 'Cash';
+  const payment_reference = formData.get('payment_reference') || null;
   const official_receipt_number = formData.get('official_receipt_number') || null;
-  const notes                   = formData.get('notes') || null;
+  const notes = formData.get('notes') || null;
 
   if (!invoice_id) return { success: false, error: 'Missing Invoice ID' };
   if (amount_tendered <= 0) return { success: false, error: 'Payment amount must be greater than zero' };
@@ -2476,7 +2477,7 @@ export async function recordCounterPayment(formData) {
   }
 
   const currentPaid = parseFloat(invoice.amount_paid) || 0;
-  const amountDue   = parseFloat(invoice.amount_due) || 0;
+  const amountDue = parseFloat(invoice.amount_due) || 0;
   const newTotalPaid = currentPaid + amount_tendered;
 
   let newStatus = 'Partially Paid';
@@ -2520,13 +2521,13 @@ export async function cancelInvoice(formData) {
 
   const supabaseServer = await createClient();
   const invoice_id = formData.get('invoice_id');
-  const reason     = formData.get('reason') || 'Cancelled by staff';
+  const reason = formData.get('reason') || 'Cancelled by staff';
 
   if (!invoice_id) return { success: false, error: 'Missing invoice ID' };
 
   const { error } = await supabaseServer
     .from('invoices')
-    .update({ 
+    .update({
       payment_status: 'Cancelled',
       notes: `[Voided]: ${reason}`,
       updated_at: new Date().toISOString()
@@ -2549,16 +2550,16 @@ export async function createPhilHealthClaim(formData) {
   const supabaseServer = await createClient();
   const { data: { user } } = await supabaseServer.auth.getUser();
 
-  const patient_id           = formData.get('patient_id');
-  const maternal_episode_id  = formData.get('maternal_episode_id') || null;
-  const invoice_id           = formData.get('invoice_id') || null;
-  const package_type         = formData.get('package_type') || 'MCP';
-  const claim_amount         = parseFloat(formData.get('claim_amount')) || 6500;
+  const patient_id = formData.get('patient_id');
+  const maternal_episode_id = formData.get('maternal_episode_id') || null;
+  const invoice_id = formData.get('invoice_id') || null;
+  const package_type = formData.get('package_type') || 'MCP';
+  const claim_amount = parseFloat(formData.get('claim_amount')) || 6500;
   const philhealth_member_id = formData.get('philhealth_member_id') || null;
-  const member_category      = formData.get('member_category') || 'Formal Economy';
+  const member_category = formData.get('member_category') || 'Formal Economy';
   const patient_relationship = formData.get('patient_relationship') || 'Member';
-  const date_of_delivery     = formData.get('date_of_delivery');
-  const notes                = formData.get('notes') || null;
+  const date_of_delivery = formData.get('date_of_delivery');
+  const notes = formData.get('notes') || null;
 
   if (!patient_id || !date_of_delivery) {
     return { success: false, error: 'Patient ID and Date of Delivery are required' };
@@ -2632,13 +2633,13 @@ export async function updatePhilHealthClaimStatus(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const id                       = formData.get('id');
-  const status                   = formData.get('status');
-  const transmitted_date         = formData.get('transmitted_date') || null;
-  const reimbursed_date          = formData.get('reimbursed_date') || null;
+  const id = formData.get('id');
+  const status = formData.get('status');
+  const transmitted_date = formData.get('transmitted_date') || null;
+  const reimbursed_date = formData.get('reimbursed_date') || null;
   const check_or_reference_number = formData.get('check_or_reference_number') || null;
-  const denial_reason            = formData.get('denial_reason') || null;
-  const notes                    = formData.get('notes') || null;
+  const denial_reason = formData.get('denial_reason') || null;
+  const notes = formData.get('notes') || null;
 
   if (!id || !status) {
     return { success: false, error: 'Missing claim ID or status' };
@@ -2679,3 +2680,35 @@ export async function updatePhilHealthClaimStatus(formData) {
   return { success: true };
 }
 
+// ==========================================
+// PHILHEALTH MCP AUTOMATION
+// ==========================================
+
+export async function togglePhilHealthOverride(formData) {
+  const supabaseServer = await createClient();
+  const maternal_episode_id = formData.get('maternal_episode_id');
+  const override_value = formData.get('override_value') === 'true';
+  const patient_id = formData.get('patient_id');
+
+  const { error } = await supabaseServer
+    .from('maternal_episodes')
+    .update({ philhealth_mcp_override: override_value })
+    .eq('id', maternal_episode_id);
+
+  if (error) {
+    console.error('[togglePhilHealthOverride] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // DPA Audit Trail
+  const { data: user } = await supabaseServer.auth.getUser();
+  await logAuditEvent({
+    action: 'TOGGLE_MCP_OVERRIDE',
+    entityType: 'maternal_episodes',
+    entityId: maternal_episode_id,
+    details: { patient_id, override_value, user_id: user?.user?.id }
+  });
+
+  revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}

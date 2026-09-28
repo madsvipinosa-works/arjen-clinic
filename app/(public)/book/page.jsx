@@ -113,14 +113,29 @@ export default async function BookingPage({ searchParams }) {
           </p>
         </div>
 
-        {params?.success && (
+        {params?.success && params?.status === 'Approved' ? (
+          <div className="bg-emerald-50/80 backdrop-blur-sm text-emerald-900 p-6 sm:p-8 rounded-3xl mb-6 flex flex-col items-center justify-center gap-3 border border-emerald-200/60 shadow-lg shadow-emerald-500/10 animate-in fade-in slide-in-from-top-4 duration-700 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-teal-400/20 blur-3xl rounded-full" />
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-emerald-400/20 blur-3xl rounded-full" />
+            <div className="bg-white p-3 rounded-2xl shadow-sm mb-2 border border-emerald-100 z-10">
+              <CheckCircle2 className="w-8 h-8 text-emerald-500" />
+            </div>
+            <div className="text-center z-10 space-y-1.5">
+              <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider mb-1">Smart Triage: Auto-Approved</span>
+              <h3 className="font-black text-xl text-emerald-950">You're all set!</h3>
+              <p className="font-medium text-sm text-emerald-700 max-w-sm mx-auto leading-relaxed">
+                Your routine prenatal checkup has been instantly approved without waiting for staff review. A confirmation SMS is on its way.
+              </p>
+            </div>
+          </div>
+        ) : params?.success ? (
           <div className="bg-emerald-50 text-emerald-800 p-4 sm:p-5 rounded-2xl mb-6 flex items-center justify-center gap-3 border border-emerald-200 shadow-md animate-in fade-in slide-in-from-top-4 duration-500">
             <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
             <span className="font-bold text-sm sm:text-base">
-              Perfect! Your appointment request has been securely submitted.
+              Perfect! Your appointment request has been securely submitted and is pending review.
             </span>
           </div>
-        )}
+        ) : null}
 
         {params?.error && (
           <div className="bg-rose-50 border-2 border-rose-200 text-rose-900 p-4 sm:p-5 rounded-2xl mb-6 shadow-md text-center animate-in fade-in slide-in-from-top-4 duration-500 space-y-1.5">

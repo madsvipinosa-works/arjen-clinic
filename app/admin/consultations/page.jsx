@@ -68,7 +68,7 @@ export default async function AdminConsultationsPage({ searchParams }) {
     .from('patients')
     .select(`
       *,
-      maternal_episodes (id, lmp, edc, gravidity, parity, gravida, para, status, created_at)
+      maternal_episodes (*)
     `)
     .order('created_at', { ascending: false })
     .limit(60);
@@ -83,7 +83,7 @@ export default async function AdminConsultationsPage({ searchParams }) {
       .from('patients')
       .select(`
         *,
-        maternal_episodes (id, lmp, edc, gravidity, parity, gravida, para, status, created_at)
+        maternal_episodes (*)
       `)
       .in('id', missingIds);
     if (missingPatients) {

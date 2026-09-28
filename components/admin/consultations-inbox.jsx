@@ -3,55 +3,42 @@
 import React, { useState, useEffect, useRef, useTransition } from 'react';
 import Link from 'next/link';
 import { 
-  MessageSquare, Send, ShieldCheck, AlertCircle, AlertTriangle, 
-  Search, CheckCircle2, Clock, User, Phone, Calendar, 
-  Sparkles, ChevronRight, ArrowLeft, RefreshCw, FileText, Check, 
-  Video, Ambulance, HeartPulse, Activity, Droplets, Baby, 
-  ShieldAlert, Lock, Copy, ExternalLink, X, ChevronDown, CheckCheck,
-  PanelRightClose, PanelRightOpen, MapPin, Stethoscope, AlertOctagon, HelpCircle
+  MessageSquare, Send, AlertTriangle, 
+  Search, CheckCircle2, Clock, CheckCheck,
+  AlertOctagon, ExternalLink, X, Paperclip, Check,
+  Stethoscope, HeartPulse, Activity, Baby,
+  Droplets, Phone, ShieldCheck, PanelRightClose, PanelRightOpen
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import { formatRoleBadge } from '@/lib/rbac';
 import { calculateObstetricDates } from '@/lib/clinical-protocols';
 import { sendConsultationMessage, updateConsultationStatus } from '@/app/actions';
-import { EmergencyTransferModal } from '@/components/admin/clinical/emergency-transfer-modal';
 
 // Clinical obstetric macro responses formulated under DOH BEmONC & maternal safety standards
 const CLINICAL_MACROS = [
   {
-    title: '🚨 Urgent Clinic Visit',
+    title: 'Admit for In-Clinic Exam',
     text: 'Please proceed directly to AR-JEN Maternity Clinic immediately for urgent maternal triage, blood pressure check, and continuous fetal heart doppler monitoring. Avoid physical exertion and have your companion accompany you.',
     urgent: true,
   },
   {
-    title: '💓 Fetal Kick Count Protocol',
-    text: 'Please rest comfortably on your left side in a quiet room and count baby kicks. You should feel at least 10 distinct movements within 2 hours. If kicks are fewer, weak, or absent, please proceed to the clinic right away.',
+    title: 'Hydration & Rest',
+    text: 'Please rest comfortably on your left side in a quiet room and ensure you are well-hydrated. If symptoms persist or worsen, please visit the clinic.',
     urgent: false,
   },
   {
-    title: '🩸 Spotting & Danger Signs Guide',
-    text: 'Any vaginal bleeding or spotting during pregnancy requires prompt in-person clinical evaluation. Please place a clean sanitary pad, observe the color and flow, avoid strenuous exertion, and visit AR-JEN Clinic for sterile speculum and fetal evaluation.',
-    urgent: true,
-  },
-  {
-    title: '💊 Ferrous Sulfate & Nutrition',
-    text: 'Kindly take your Ferrous Sulfate with Folic Acid daily with water or citrus fruit juice (avoid milk or tea during intake). Stay well-hydrated with 8-10 glasses of clean water daily and maintain adequate bed rest.',
+    title: 'Normal Sensation Guidance',
+    text: 'What you are experiencing can be normal at this stage of pregnancy. Please continue your routine prenatal vitamins and observe. Contact us immediately if you experience bleeding, severe pain, or decreased fetal movement.',
     urgent: false,
   },
   {
-    title: '📋 DOH EINC Birth Preparation',
-    text: 'Please ensure your maternity bag is packed: clean clothes for mother and newborn, PhilHealth Member Data Record (MDR), valid government ID, and prior prenatal ultrasound/lab results. Contact us immediately when regular contractions start.',
+    title: 'Fetal Kick Count',
+    text: 'Please monitor your baby\'s kicks. You should feel at least 10 distinct movements within 2 hours while resting on your side. If kicks are fewer, weak, or absent, please proceed to the clinic right away.',
     urgent: false,
-  },
-  {
-    title: '🧪 Lab & Ultrasound Request',
-    text: 'Kindly bring the official printed copies of your requested laboratory results (Complete Blood Count, Urinalysis, 75g OGTT, or Ultrasound) to your next scheduled prenatal visit for clinical chart logging.',
-    urgent: false,
-  },
+  }
 ];
 
 export function ConsultationsInbox({ 
@@ -73,40 +60,12 @@ export function ConsultationsInbox({
     }
   }, [requestedPatientId]);
 
-  const [filterTab, setFilterTab] = useState('ALL'); // 'ALL' | 'NEEDS_REPLY' | 'URGENT' | 'HIGH_RISK' | 'RESOLVED'
+  const [filterTab, setFilterTab] = useState('ALL'); // 'ALL' | 'NEEDS_REPLY' | 'URGENT' | 'RESOLVED'
   const [searchTerm, setSearchTerm] = useState('');
   const [replyText, setReplyText] = useState('');
   const [isUrgentReply, setIsUrgentReply] = useState(false);
   const [isSending, startSendTransition] = useTransition();
   const [isUpdatingStatus, startStatusTransition] = useTransition();
-
-  // Modals & Panels
-  const [showTransferModal, setShowTransferModal] = useState(false);
-  const [showVideoModal, setShowVideoModal] = useState(false);
-  const [showDohChecklist, setShowDohChecklist] = useState(false);
-  const [showRightDrawer, setShowRightDrawer] = useState(true);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [copiedPhone, setCopiedPhone] = useState(false);
-
-  // Live Philippine Standard Time (PST) Clock
-  const [pstTime, setPstTime] = useState('');
-  useEffect(() => {
-    const updateClock = () => {
-      const now = new Date();
-      setPstTime(
-        now.toLocaleTimeString('en-US', {
-          timeZone: 'Asia/Manila',
-          hour12: false,
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        })
-      );
-    };
-    updateClock();
-    const interval = setInterval(updateClock, 1000);
-    return () => clearInterval(interval);
-  }, []);
 
   const messagesEndRef = useRef(null);
   const supabase = createClient();
@@ -124,6 +83,32 @@ export function ConsultationsInbox({
   const gravida = activeEpisode?.gravida ?? activeEpisode?.gravidity ?? activePatient?.gravida ?? 1;
   const para = activeEpisode?.para ?? activeEpisode?.parity ?? activePatient?.para ?? 0;
 
+  // Toggle for right clinical snapshot drawer (default open)
+  const [showRightDrawer, setShowRightDrawer] = useState(true);
+
+  // Latest bedside vitals from visit logs
+  const latestVitals = activeThread?.latestVisitLog;
+  
+  // Blood pressure classification
+  const isBpHypertensive = (() => {
+    if (!latestVitals?.bp) return false;
+    const parts = latestVitals.bp.split('/');
+    if (parts.length === 2) {
+      const sys = parseInt(parts[0], 10);
+      const dia = parseInt(parts[1], 10);
+      return sys >= 140 || dia >= 90;
+    }
+    return false;
+  })();
+
+  // Fetal heart tone Doppler classification (standard normal: 110 - 160 bpm)
+  const isFhrAbnormal = (() => {
+    const rawFht = latestVitals?.fht || latestVitals?.fhr;
+    if (!rawFht) return false;
+    const fhr = parseInt(rawFht, 10);
+    return !isNaN(fhr) && (fhr < 110 || fhr > 160);
+  })();
+
   // Gestational term progress percentage (out of 40 weeks)
   const totalWeeks = (obstetricData?.aogWeeks || 0) + ((obstetricData?.aogDays || 0) / 7);
   const progressPercent = Math.min(100, Math.max(0, Math.round((totalWeeks / 40) * 100)));
@@ -136,29 +121,29 @@ export function ConsultationsInbox({
     daysToDue = Math.ceil((edcTime - nowTime) / (1000 * 60 * 60 * 24));
   }
 
-  // Real allergies evaluation
+  // Real allergies filter (ignores 'na', 'none', etc.)
   const hasRealAllergies = Boolean(
     activePatient?.allergies && 
     !['na', 'n/a', 'none', 'no', 'nil', '-', 'none documented'].includes(activePatient.allergies.trim().toLowerCase())
   );
 
-  // Latest vitals from visit logs
-  const latestVitals = activeThread?.latestVisitLog;
-  const isBpHypertensive = (() => {
-    if (!latestVitals?.bp) return false;
-    const parts = latestVitals.bp.split('/');
-    if (parts.length === 2) {
-      const sys = parseInt(parts[0], 10);
-      const dia = parseInt(parts[1], 10);
-      return sys >= 140 || dia >= 90;
-    }
-    return false;
+  // Patient age calculation (fallback from date_of_birth if age is not explicitly set)
+  const patientAge = activePatient?.age || (() => {
+    if (!activePatient?.date_of_birth) return null;
+    const dob = new Date(activePatient.date_of_birth);
+    if (isNaN(dob.getTime())) return null;
+    const ageDiff = Date.now() - dob.getTime();
+    const ageDate = new Date(ageDiff);
+    return Math.abs(ageDate.getUTCFullYear() - 1970);
   })();
 
-  const isFhrAbnormal = (() => {
-    if (!latestVitals?.fhr) return false;
-    const fhr = parseInt(latestVitals.fhr, 10);
-    return !isNaN(fhr) && (fhr < 110 || fhr > 160);
+  // Formatted clinical risk reasons from maternal episodes or visit logs
+  const highRiskReasonsList = (() => {
+    const reasons = activeEpisode?.high_risk_reasons || latestVitals?.high_risk_reasons || activePatient?.high_risk_reasons;
+    if (!reasons) return [];
+    if (Array.isArray(reasons)) return reasons.filter(Boolean);
+    if (typeof reasons === 'string') return [reasons];
+    return [];
   })();
 
   // Scroll to bottom of message thread
@@ -206,26 +191,22 @@ export function ConsultationsInbox({
     return () => {
       supabase.removeChannel(channel);
     };
-  }, []);
+  }, [supabase]);
 
   // Filter threads
   const filteredThreads = threads.filter(t => {
     const patientName = t.patient?.full_name?.toLowerCase() || '';
-    const phone = t.patient?.phone_number || t.patient?.contact_number || '';
     const lastMsgContent = t.lastMessage?.content?.toLowerCase() || '';
     const term = searchTerm.toLowerCase();
 
-    const matchesSearch = patientName.includes(term) || phone.includes(term) || lastMsgContent.includes(term);
+    const matchesSearch = patientName.includes(term) || lastMsgContent.includes(term);
     if (!matchesSearch) return false;
 
     if (filterTab === 'NEEDS_REPLY') {
       return t.lastMessage?.sender_role === 'patient' && t.status !== 'resolved';
     }
     if (filterTab === 'URGENT') {
-      return t.hasUrgent;
-    }
-    if (filterTab === 'HIGH_RISK') {
-      return t.patient?.is_high_risk;
+      return t.hasUrgent || t.patient?.is_high_risk;
     }
     if (filterTab === 'RESOLVED') {
       return t.status === 'resolved';
@@ -235,7 +216,7 @@ export function ConsultationsInbox({
 
   // Queue Counters
   const awaitingReplyCount = threads.filter(t => t.lastMessage?.sender_role === 'patient' && t.status !== 'resolved').length;
-  const urgentCount = threads.filter(t => t.hasUrgent).length;
+  const urgentCount = threads.filter(t => t.hasUrgent || t.patient?.is_high_risk).length;
 
   // Handle Send Reply
   const handleSendReply = (e) => {
@@ -305,119 +286,28 @@ export function ConsultationsInbox({
     });
   };
 
-  // Video Room URL generator (private peer room based on patient ID)
-  const videoRoomUrl = `https://meet.jit.si/arjen-maternity-telehealth-${selectedPatientId ? selectedPatientId.slice(0, 8) : 'general'}`;
-
-  const copyVideoInvitation = () => {
-    const message = `AR-JEN Maternity Telehealth Video Consult Link: ${videoRoomUrl}. Please join using Google Chrome or your smartphone browser.`;
-    navigator.clipboard.writeText(message);
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2500);
-  };
-
-  const copyPatientPhone = (phone) => {
-    if (!phone) return;
-    navigator.clipboard.writeText(phone);
-    setCopiedPhone(true);
-    setTimeout(() => setCopiedPhone(false), 2000);
-  };
-
   return (
-    <div className="flex flex-col h-[calc(100vh-5rem)] bg-white/95 backdrop-blur-md rounded-3xl border border-gray-200/80 shadow-sm overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh-5rem)] bg-white/90 backdrop-blur-md rounded-3xl border border-gray-100 shadow-sm overflow-hidden font-jakarta">
       
       {/* ──────────────────────────────────────────────────────────── */}
-      {/* 1. TOP GLOBAL TELEHEALTH COMMAND RIBBON (Stitch Header)     */}
+      {/* MAIN 2-COLUMN WORKSPACE CONTAINER                             */}
       {/* ──────────────────────────────────────────────────────────── */}
-      <header className="h-16 px-5 sm:px-6 bg-white/90 backdrop-blur-md border-b border-gray-100 flex items-center justify-between shrink-0 z-20">
-        
-        {/* Left: Branding & Destination Breadcrumb */}
-        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 to-rose-600 text-white flex items-center justify-center shadow-md shadow-rose-200 shrink-0">
-            <MessageSquare className="w-5 h-5" />
-          </div>
-          <div className="flex flex-col min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200/80">
-                Telehealth Hub
-              </span>
-              <span className="text-gray-300 hidden sm:inline">/</span>
-              <h1 className="text-sm sm:text-base font-bold text-gray-900 tracking-tight truncate">
-                Central Consultations & Triage
-              </h1>
-            </div>
-            <p className="text-[11px] text-gray-500 truncate hidden md:block">
-              Encrypted asynchronous clinical messaging & remote obstetric guidance
-            </p>
-          </div>
-        </div>
-
-        {/* Center/Right: Duty Status, PST Clock & STAT Emergency Transfer Trigger */}
-        <div className="flex items-center gap-2.5 sm:gap-3">
-          
-          {/* Clinician Active On-Duty Status Pill */}
-          <div className="hidden lg:flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-xs font-bold text-emerald-800">
-              {currentStaff?.fullName || 'Clinician'} • On Duty
-            </span>
-          </div>
-
-          {/* Live Philippine Standard Time (PST) Clock */}
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gray-50 text-gray-700 font-mono text-xs font-semibold border border-gray-200/80 shadow-2xs">
-            <Clock className="w-3.5 h-3.5 text-rose-600" />
-            <span>PST {pstTime || '12:00:00'}</span>
-          </div>
-
-          {/* DOH Level 1 Telehealth Protocol Notice Pill */}
-          <div className="hidden 2xl:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-50 border border-gray-200 text-gray-600 text-xs font-semibold">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span>DOH Level 1 Protocol • Non-emergency triage</span>
-          </div>
-
-          {/* Quick Emergency Code Pink / STAT Transfer Button */}
-          <Button
-            size="sm"
-            onClick={() => setShowTransferModal(true)}
-            className="rounded-xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-bold text-xs gap-1.5 shadow-md shadow-red-500/20 active:scale-95 transition-all"
-          >
-            <Ambulance className="w-4 h-4" />
-            <span className="hidden sm:inline">STAT Transfer Slip</span>
-          </Button>
-
-        </div>
-      </header>
-
-      {/* ──────────────────────────────────────────────────────────── */}
-      {/* 2. MAIN 3-COLUMN WORKSPACE CONTAINER                        */}
-      {/* ──────────────────────────────────────────────────────────── */}
-      <div className="flex-1 flex overflow-hidden bg-slate-50/30">
+      <div className="flex-1 flex overflow-hidden">
 
         {/* ══════════════════════════════════════════════════════════════ */}
-        {/* COLUMN 1: THREAD DIRECTORY (~340px)                          */}
+        {/* LEFT COLUMN: THREAD DIRECTORY (~360px - 400px)               */}
         {/* ══════════════════════════════════════════════════════════════ */}
-        <section className="w-80 md:w-88 xl:w-96 border-r border-gray-200/80 bg-white flex flex-col shrink-0">
+        <section className="w-80 md:w-96 border-r border-gray-100 bg-white/60 flex flex-col shrink-0">
           
           {/* Queue Header & Search */}
-          <div className="p-3.5 border-b border-gray-100 bg-white space-y-2.5">
+          <div className="p-5 border-b border-gray-100 space-y-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="text-xs font-black text-gray-900 uppercase tracking-wider">
-                  Consultation Queue
-                </h2>
-                <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 font-black text-[10px] border border-rose-200">
-                  {threads.length}
-                </span>
-              </div>
-              
-              {awaitingReplyCount > 0 && (
-                <span className="flex items-center gap-1.5 text-[11px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                  {awaitingReplyCount} Needs Reply
-                </span>
-              )}
+              <h2 className="text-[15px] font-bold text-gray-900 tracking-tight">
+                Consultations & Triage
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-xs border border-rose-100">
+                {threads.length} Active
+              </span>
             </div>
 
             {/* Live Search Input */}
@@ -426,13 +316,13 @@ export function ConsultationsInbox({
               <Input
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search patient, phone, symptoms..."
-                className="pl-9 h-9 text-xs rounded-xl border-gray-200 bg-gray-50/80 focus:bg-white transition-colors"
+                placeholder="Search patient name, PIN, or triage note..."
+                className="pl-9 h-10 text-[13px] rounded-xl border-gray-200 bg-white hover:bg-gray-50 focus:bg-white transition-colors shadow-sm"
               />
               {searchTerm && (
                 <button
                   onClick={() => setSearchTerm('')}
-                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5"
                 >
                   <X className="w-3.5 h-3.5" />
                 </button>
@@ -440,21 +330,20 @@ export function ConsultationsInbox({
             </div>
 
             {/* Filter Tabs Chips */}
-            <div className="flex items-center gap-1 overflow-x-auto pb-0.5 text-[11px] font-bold no-scrollbar">
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 text-[11px] font-semibold no-scrollbar">
               {[
-                { id: 'ALL', label: `All (${threads.length})` },
-                { id: 'NEEDS_REPLY', label: `Needs Reply (${awaitingReplyCount})` },
-                { id: 'URGENT', label: `🚨 Urgent (${urgentCount})` },
-                { id: 'HIGH_RISK', label: 'High-Risk' },
+                { id: 'ALL', label: `All` },
+                { id: 'NEEDS_REPLY', label: `Awaiting Reply` },
+                { id: 'URGENT', label: `Urgent / High Risk` },
                 { id: 'RESOLVED', label: 'Resolved' },
               ].map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setFilterTab(tab.id)}
-                  className={`px-2.5 py-1 rounded-xl transition-all whitespace-nowrap ${
+                  className={`px-3 py-1.5 rounded-full transition-all whitespace-nowrap border ${
                     filterTab === tab.id
-                      ? 'bg-gray-900 text-white shadow-xs font-bold'
-                      : 'bg-gray-100/80 text-gray-600 hover:bg-gray-200/70 font-semibold'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                      : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'
                   }`}
                 >
                   {tab.label}
@@ -464,372 +353,270 @@ export function ConsultationsInbox({
           </div>
 
           {/* Patient Threads Scroll Area */}
-          <div className="flex-1 overflow-y-auto divide-y divide-gray-100">
+          <div className="flex-1 overflow-y-auto">
             {filteredThreads.length > 0 ? (
-              filteredThreads.map(thread => {
-                const isSelected = thread.patient?.id === selectedPatientId;
-                const isUnanswered = thread.lastMessage?.sender_role === 'patient' && thread.status !== 'resolved';
-                const hasUrgentMsg = thread.hasUrgent;
+              <div className="p-3 space-y-2">
+                {filteredThreads.map(thread => {
+                  const isSelected = thread.patient?.id === selectedPatientId;
+                  const isUnanswered = thread.lastMessage?.sender_role === 'patient' && thread.status !== 'resolved';
+                  const hasUrgentMsg = thread.hasUrgent;
 
-                // Patient Obstetric Metrics
-                const ep = thread.patient?.maternal_episodes?.find(e => e.status === 'Active') || thread.patient?.maternal_episodes?.[0];
-                const obst = calculateObstetricDates(ep?.lmp || thread.patient?.lmp);
-                const pGravida = ep?.gravida ?? ep?.gravidity ?? thread.patient?.gravida ?? 1;
-                const pPara = ep?.para ?? ep?.parity ?? thread.patient?.para ?? 0;
+                  // Patient Obstetric Metrics
+                  const ep = thread.patient?.maternal_episodes?.find(e => e.status === 'Active') || thread.patient?.maternal_episodes?.[0];
+                  const obst = calculateObstetricDates(ep?.lmp || thread.patient?.lmp);
+                  
+                  // Patient initials
+                  const initials = thread.patient?.full_name
+                    ? thread.patient.full_name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
+                    : 'PT';
 
-                // Patient initials
-                const initials = thread.patient?.full_name
-                  ? thread.patient.full_name.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()
-                  : 'PT';
-
-                return (
-                  <button
-                    key={thread.patient?.id}
-                    onClick={() => setSelectedPatientId(thread.patient?.id)}
-                    className={`w-full text-left p-3.5 transition-all flex items-start gap-3 relative ${
-                      isSelected
-                        ? 'bg-rose-50/70 border-r-4 border-rose-600 shadow-xs'
-                        : 'hover:bg-gray-50/80'
-                    }`}
-                  >
-                    {/* Patient Avatar with Active Indicator */}
-                    <div className="relative shrink-0 mt-0.5">
-                      <div className={`w-10 h-10 rounded-2xl flex items-center justify-center font-black text-xs ${
-                        isSelected 
-                          ? 'bg-rose-600 text-white shadow-sm shadow-rose-200' 
-                          : 'bg-slate-100 border border-gray-200 text-gray-700'
-                      }`}>
-                        {initials}
-                      </div>
-                      {isUnanswered && (
-                        <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border-2 border-white ring-1 ring-amber-300" />
+                  return (
+                    <button
+                      key={thread.patient?.id}
+                      onClick={() => setSelectedPatientId(thread.patient?.id)}
+                      className={`w-full text-left p-4 transition-all rounded-2xl flex items-start gap-3.5 relative border ${
+                        isSelected
+                          ? 'bg-rose-50/50 border-rose-200 shadow-sm ring-1 ring-inset ring-rose-100'
+                          : 'bg-white border-transparent hover:border-gray-200 hover:shadow-sm'
+                      }`}
+                    >
+                      {/* Active Indicator Accent Line */}
+                      {isSelected && (
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-rose-500 rounded-r-full" />
                       )}
-                    </div>
 
-                    {/* Patient Context & Snippet */}
-                    <div className="flex-1 min-w-0">
-                      
-                      {/* Name & Time */}
-                      <div className="flex items-center justify-between gap-1">
-                        <span className="font-bold text-xs text-gray-900 truncate">
-                          {thread.patient?.full_name}
-                        </span>
-                        <span className="text-[10px] text-gray-400 font-mono shrink-0">
-                          {thread.lastMessage?.created_at
-                            ? new Date(thread.lastMessage.created_at).toLocaleTimeString('en-PH', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                              })
-                            : ''}
-                        </span>
-                      </div>
-
-                      {/* Gestation & Obstetric Tagline */}
-                      <div className="flex items-center gap-1.5 text-[10px] text-gray-500 mt-0.5">
-                        {obst?.aogFormatted ? (
-                          <span className="font-semibold text-rose-700 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-100">
-                            {obst.aogFormatted}
-                          </span>
-                        ) : (
-                          <span>GA: Pending</span>
-                        )}
-                        <span>•</span>
-                        <span>G{pGravida}P{pPara}</span>
-                        {thread.patient?.blood_type && (
-                          <>
-                            <span>•</span>
-                            <span className="font-mono">{thread.patient.blood_type}</span>
-                          </>
-                        )}
-                      </div>
-
-                      {/* Clinical Priority Badges */}
-                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        {hasUrgentMsg && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 text-red-700 font-black uppercase tracking-wider flex items-center gap-1 border border-red-200">
-                            <AlertTriangle className="w-3 h-3" /> Urgent
-                          </span>
-                        )}
-                        {thread.patient?.is_high_risk && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold border border-amber-200">
-                            High-Risk
-                          </span>
-                        )}
-                        {thread.status === 'resolved' && (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
-                            ✓ Resolved
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Message Preview Snippet */}
-                      <p className="text-[11px] text-gray-600 line-clamp-2 mt-1 leading-snug">
-                        {thread.lastMessage?.sender_role === 'patient' ? (
-                          <strong className="text-gray-900 font-bold">Patient: </strong>
-                        ) : thread.lastMessage ? (
-                          <strong className="text-rose-600 font-bold">Staff: </strong>
-                        ) : null}
-                        {thread.lastMessage?.content || (
-                          <span className="italic text-gray-400">No consultation messages logged yet</span>
-                        )}
-                      </p>
-
-                      {/* Lower Micro Status */}
-                      {isUnanswered && (
-                        <div className="flex items-center gap-1 mt-1 text-[10px] font-bold text-amber-700">
-                          <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></span>
-                          <span>Awaiting Clinical Reply</span>
+                      {/* Patient Avatar */}
+                      <div className="relative shrink-0 mt-0.5">
+                        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm ${
+                          isSelected 
+                            ? 'bg-rose-600 text-white' 
+                            : 'bg-slate-100 text-slate-600 border border-slate-200'
+                        }`}>
+                          {initials}
                         </div>
-                      )}
+                        {isUnanswered && (
+                          <span className="absolute -top-1 -right-1 w-3 h-3 bg-amber-500 rounded-full border-2 border-white" />
+                        )}
+                      </div>
 
-                    </div>
-                  </button>
-                );
-              })
+                      {/* Patient Context & Snippet */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2 mb-1">
+                          <span className="font-bold text-[14px] text-gray-900 truncate">
+                            {thread.patient?.full_name}
+                          </span>
+                          <span className="text-[11px] text-gray-400 shrink-0">
+                            {thread.lastMessage?.created_at
+                              ? new Date(thread.lastMessage.created_at).toLocaleTimeString('en-PH', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })
+                              : ''}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap mb-1.5">
+                          {obst?.aogFormatted ? (
+                            <span className="text-[10px] font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                              {obst.aogFormatted} AOG
+                            </span>
+                          ) : null}
+                          
+                          {(hasUrgentMsg || thread.patient?.is_high_risk) ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 font-bold border border-rose-100">
+                              High Risk
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-emerald-50 text-emerald-700 font-semibold border border-emerald-100">
+                              Routine / Low Risk
+                            </span>
+                          )}
+                          
+                          {isUnanswered && (
+                            <span className="text-[10px] px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 font-bold border border-amber-100">
+                              Needs Reply
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[12px] text-gray-500 line-clamp-1">
+                          {thread.lastMessage?.content || <span className="italic text-gray-400">No messages yet</span>}
+                        </p>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             ) : (
-              <div className="p-8 text-center text-xs text-gray-400 italic space-y-2">
-                <Search className="w-8 h-8 text-gray-300 mx-auto" />
-                <p>No teleconsultation threads match this filter.</p>
+              <div className="p-8 text-center text-[13px] text-gray-400 space-y-3 mt-10">
+                <div className="w-12 h-12 rounded-full bg-slate-50 flex items-center justify-center mx-auto mb-2 border border-slate-100">
+                  <MessageSquare className="w-5 h-5 text-slate-300" />
+                </div>
+                <p>No active consultations match your filters.</p>
               </div>
             )}
           </div>
-
-          {/* Directory Footer Gateway Status */}
-          <div className="p-2.5 bg-gray-50 border-t border-gray-100 flex items-center justify-between text-gray-500 text-[11px]">
-            <span className="flex items-center gap-1.5 font-semibold text-emerald-700">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Tele-Triage Gateway Online
-            </span>
-            <span className="text-gray-400 font-mono text-[10px]">
-              DPA Secure Sync
-            </span>
-          </div>
-
         </section>
 
         {/* ══════════════════════════════════════════════════════════════ */}
-        {/* COLUMN 2: ACTIVE CLINICAL CHAT WORKSPACE (flex-1)             */}
+        {/* RIGHT COLUMN: ACTIVE CHAT & TRIAGE WORKSPACE                 */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {activeThread ? (
-          <section className="flex-1 flex flex-col bg-white overflow-hidden min-w-[380px]">
+          <section className="flex-1 flex flex-col bg-[#F8FAFC] relative overflow-hidden">
             
             {/* Active Patient Chat Header */}
-            <div className="px-5 py-3.5 bg-white border-b border-gray-100 flex items-center justify-between shrink-0 shadow-2xs z-10">
-              
-              <div className="flex items-center gap-3 min-w-0">
-                <div className="relative shrink-0">
-                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-rose-500 to-rose-600 text-white flex items-center justify-center font-black text-sm shadow-sm shadow-rose-200">
-                    {activePatient?.full_name?.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase() || 'PT'}
-                  </div>
-                  <span className="absolute bottom-0 right-0 w-3 h-3 rounded-full bg-emerald-500 border-2 border-white" title="Telemetry Channel Active" />
+            <div className="px-6 py-4 bg-white/95 backdrop-blur-md border-b border-slate-200/60 flex items-center justify-between shrink-0 z-10 shadow-[0_1px_3px_0_rgba(0,0,0,0.02)]">
+              <div className="flex flex-col gap-1 min-w-0">
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-bold text-slate-900 tracking-tight truncate">
+                    {activePatient?.full_name}
+                    {activePatient?.age ? `, ${activePatient.age} y/o` : ''}
+                  </h2>
+                  {activeThread.status === 'resolved' && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200 uppercase tracking-wider">
+                      ✓ Resolved
+                    </span>
+                  )}
                 </div>
 
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h2 className="text-base font-bold text-gray-900 tracking-tight truncate">
-                      {activePatient?.full_name}
-                    </h2>
-                    
-                    {activePatient?.blood_type && (
-                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-                        {activePatient.blood_type}
-                      </span>
-                    )}
-
-                    {activePatient?.is_high_risk ? (
-                      <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200 flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" /> High Risk
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-                        Standard Low Risk
-                      </span>
-                    )}
-
-                    {activeThread.status === 'resolved' ? (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-700 border border-gray-200">
-                        ✓ Resolved
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
-                        Active Inbound
-                      </span>
-                    )}
-                  </div>
-
-                  <div className="flex items-center gap-2.5 text-xs text-gray-500 mt-0.5 font-medium flex-wrap">
-                    {activePatient?.age && <span>{activePatient.age} yrs old</span>}
-                    {obstetricData?.aogFormatted && (
-                      <>
-                        <span>•</span>
-                        <span className="font-bold text-rose-700">
-                          GA: {obstetricData.aogFormatted} ({obstetricData.trimester})
-                        </span>
-                      </>
-                    )}
-                    {obstetricData?.edcFormatted && (
-                      <>
-                        <span>•</span>
-                        <span>EDC: {obstetricData.edcFormatted}</span>
-                      </>
-                    )}
-                  </div>
+                <div className="flex items-center gap-2 text-[11px] font-medium flex-wrap">
+                  {obstetricData?.aogFormatted && (
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
+                      {obstetricData.aogFormatted} AOG • G{gravida}P{para}
+                    </span>
+                  )}
+                  {activePatient?.philhealth_number && (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 flex items-center gap-1">
+                      <CheckCircle2 className="w-3 h-3" /> PhilHealth MCP Verified
+                    </span>
+                  )}
+                  {activePatient?.is_high_risk && (
+                    <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-100 flex items-center gap-1">
+                      <AlertTriangle className="w-3 h-3" /> High Risk
+                      {highRiskReasonsList.length > 0 ? ` - ${highRiskReasonsList[0]}` : ''}
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {/* Action Buttons */}
+              {/* Header Action Buttons */}
               <div className="flex items-center gap-2 shrink-0">
-                
-                {/* Mark as Resolved Toggle */}
                 <Button
                   size="sm"
                   variant="outline"
+                  onClick={() => setShowRightDrawer(!showRightDrawer)}
+                  className={`rounded-xl text-xs font-semibold gap-1.5 transition-colors h-9 ${
+                    showRightDrawer 
+                      ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100' 
+                      : 'border-slate-200 text-slate-600 hover:bg-slate-50 bg-white'
+                  }`}
+                  title={showRightDrawer ? "Hide Bedside Snapshot" : "Show Bedside Snapshot"}
+                >
+                  {showRightDrawer ? <PanelRightClose className="w-3.5 h-3.5" /> : <PanelRightOpen className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{showRightDrawer ? 'Hide Snapshot' : 'Bedside Snapshot'}</span>
+                </Button>
+
+                <Link
+                  href={`/admin/patients/${activePatient?.id}`}
+                  className="hidden md:flex"
+                  target="_blank"
+                >
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl text-xs font-semibold gap-1.5 border-slate-200 text-slate-600 hover:bg-slate-50 transition-colors bg-white h-9"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    Full Chart
+                  </Button>
+                </Link>
+                <Button
+                  size="sm"
                   onClick={handleToggleResolve}
                   disabled={isUpdatingStatus}
-                  className="rounded-xl text-xs font-bold gap-1.5 border-gray-200 hover:bg-gray-50 transition-colors"
+                  className={`rounded-xl text-xs font-bold h-9 px-4 transition-colors ${
+                    activeThread.status === 'resolved' 
+                      ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200' 
+                      : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200'
+                  }`}
                 >
-                  <CheckCircle2 className={`w-3.5 h-3.5 ${activeThread.status === 'resolved' ? 'text-gray-400' : 'text-emerald-600'}`} />
-                  <span className="hidden sm:inline">
-                    {activeThread.status === 'resolved' ? 'Reopen Thread' : 'Mark as Resolved'}
-                  </span>
+                  {activeThread.status === 'resolved' ? 'Reopen Thread' : 'Mark Resolved'}
                 </Button>
-
-                {/* Initiate Video Teleconsult */}
-                <Button
-                  size="sm"
-                  onClick={() => setShowVideoModal(true)}
-                  className="rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 shadow-sm active:scale-95 transition-all"
-                >
-                  <Video className="w-3.5 h-3.5" />
-                  <span className="hidden md:inline">Video Consult</span>
-                </Button>
-
-                {/* Emergency Transfer Slip */}
-                <Button
-                  size="sm"
-                  onClick={() => setShowTransferModal(true)}
-                  className="rounded-xl bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 font-bold text-xs gap-1.5 active:scale-95 transition-all"
-                >
-                  <Ambulance className="w-3.5 h-3.5" />
-                  <span className="hidden lg:inline">BEmONC Referral</span>
-                </Button>
-
-                {/* Toggle Bedside Drawer */}
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setShowRightDrawer(!showRightDrawer)}
-                  className="rounded-xl p-2 text-gray-500 hover:text-gray-800 hover:bg-gray-100"
-                  title={showRightDrawer ? "Hide Clinical Snapshot" : "Show Clinical Snapshot"}
-                >
-                  {showRightDrawer ? (
-                    <PanelRightClose className="w-4 h-4" />
-                  ) : (
-                    <PanelRightOpen className="w-4 h-4" />
-                  )}
-                </Button>
-
               </div>
             </div>
 
             {/* Acute Danger Sign Warning Alert Banner */}
             {(activeThread.hasUrgent || activePatient?.is_high_risk) && (
-              <div className="mx-4 mt-3 p-3 bg-gradient-to-r from-rose-50 via-amber-50 to-rose-50 border-l-4 border-l-rose-500 border border-rose-200/70 rounded-2xl shadow-2xs flex items-start justify-between gap-3 shrink-0">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-rose-500 text-white flex items-center justify-center shrink-0 mt-0.5">
-                    <AlertOctagon className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-bold text-rose-900 uppercase tracking-wide">
-                        ⚠️ High Priority Clinical Alert Flagged
-                      </span>
-                      <span className="text-[10px] font-black uppercase px-2 py-0.2 rounded-full bg-rose-600 text-white">
-                        Triage Protocol
-                      </span>
-                    </div>
-                    <p className="text-xs text-rose-800 leading-snug mt-0.5">
-                      {activePatient?.high_risk_reasons 
-                        ? `Clinical Note: ${activePatient.high_risk_reasons}. Conduct immediate maternal vitals & continuous FHR assessment.`
-                        : 'Patient reported danger signs (spotting, bleeding, severe headache, or abdominal pain). Advise immediate in-person clinic triage.'
-                      }
-                    </p>
-                  </div>
+              <div className="mx-6 mt-4 p-3.5 bg-rose-50 border border-rose-200 rounded-2xl shadow-xs flex items-start gap-3 shrink-0">
+                <AlertOctagon className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                <div className="text-xs">
+                  <h4 className="font-bold text-rose-900 uppercase tracking-wide">
+                    Flagged for Priority Clinical Alert
+                  </h4>
+                  <p className="text-rose-800 leading-snug mt-0.5">
+                    {highRiskReasonsList.length > 0 
+                      ? `Clinical Triggers: ${highRiskReasonsList.join(', ')}. Guideline: Advise immediate in-clinic evaluation.`
+                      : 'Patient reported potential danger signs. Guideline: Advise immediate in-clinic evaluation.'
+                    }
+                  </p>
                 </div>
-
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowDohChecklist(true)}
-                  className="rounded-xl text-[11px] font-bold border-rose-300 text-rose-700 bg-white hover:bg-rose-50 shrink-0 self-center"
-                >
-                  DOH Protocol Checklist
-                </Button>
               </div>
             )}
 
             {/* Chronological Message Stream */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-4 bg-slate-50/50">
-              
-              {/* Telehealth Date Divider */}
-              <div className="flex items-center justify-center my-1">
-                <span className="px-3 py-1 rounded-full bg-white border border-gray-200/80 text-gray-500 font-mono text-[10px] font-semibold shadow-2xs">
-                  Today, {new Date().toLocaleDateString('en-PH', { month: 'long', day: 'numeric', year: 'numeric' })} • Telehealth Encrypted
-                </span>
-              </div>
-
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {activeThread.messages && activeThread.messages.length > 0 ? (
                 activeThread.messages.map((msg) => {
                   const isStaff = ['admin', 'doctor', 'midwife', 'nurse', 'staff'].includes(msg.sender_role);
                   const roleBadge = formatRoleBadge(msg.sender_role);
-                  const dateObj = new Date(msg.created_at);
-                  const timeStr = dateObj.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+                  const timeStr = new Date(msg.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
 
                   return (
                     <div
                       key={msg.id}
-                      className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'} max-w-2xl ${isStaff ? 'ml-auto' : 'mr-auto'}`}
+                      className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'} max-w-[85%] ${isStaff ? 'ml-auto' : 'mr-auto'}`}
                     >
-                      {/* Sender Name & Role Header */}
-                      <div className={`flex items-center gap-2 mb-1 px-1 ${isStaff ? 'justify-end' : 'justify-start'}`}>
-                        <span className="text-xs font-bold text-gray-800">
+                      <div className={`flex items-center gap-2 mb-1.5 px-1 ${isStaff ? 'flex-row-reverse' : 'flex-row'}`}>
+                        <span className="text-[13px] font-bold text-slate-700">
                           {isStaff ? (msg.sender_name || 'Clinic Clinician') : (msg.sender_name || activePatient?.full_name)}
                         </span>
-                        <span className={`text-[10px] font-black uppercase px-2 py-0.2 rounded-md ${roleBadge.badgeClass}`}>
-                          {roleBadge.shortLabel}
-                        </span>
-                        <span className="text-[10px] text-gray-400 font-mono">
+                        {isStaff ? (
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roleBadge.badgeClass}`}>
+                            {roleBadge.shortLabel}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                            Patient Portal
+                          </span>
+                        )}
+                        <span className="text-[11px] text-slate-400 font-medium">
                           {timeStr}
                         </span>
                       </div>
 
-                      {/* Bubble Surface */}
                       <div
-                        className={`p-4 rounded-3xl text-xs sm:text-[13px] leading-relaxed shadow-sm ${
+                        className={`p-4 text-[14px] leading-relaxed relative ${
                           isStaff
-                            ? 'bg-gradient-to-br from-rose-600 to-rose-700 text-white rounded-tr-xs shadow-rose-200/50'
+                            ? 'bg-slate-800 text-white rounded-2xl rounded-tr-sm shadow-md'
                             : msg.is_flagged_urgent
-                            ? 'bg-white text-gray-900 border-2 border-red-300 rounded-tl-xs shadow-red-100'
-                            : 'bg-white text-gray-800 border border-gray-200/80 rounded-tl-xs shadow-slate-100'
+                            ? 'bg-rose-50 text-rose-900 border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm'
+                            : 'bg-white text-slate-800 border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm'
                         }`}
                       >
-                        {/* Urgent Alert Banner within patient bubble */}
                         {msg.is_flagged_urgent && !isStaff && (
-                          <div className="flex items-center gap-1.5 font-bold text-red-700 text-[11px] uppercase tracking-wider mb-2 pb-1.5 border-b border-red-200">
+                          <div className="flex items-center gap-1.5 font-bold text-rose-700 text-[11px] uppercase tracking-wider mb-2 pb-1.5 border-b border-rose-200">
                             <AlertTriangle className="w-3.5 h-3.5" />
-                            <span>Clinical Danger Sign Screened</span>
+                            <span>Urgent Inquiry</span>
                           </div>
                         )}
 
                         <p className="whitespace-pre-wrap">{msg.content}</p>
 
-                        {/* Clinician Delivery Confirmation Stamp */}
                         {isStaff && (
-                          <div className="pt-2.5 mt-2 border-t border-white/20 flex items-center justify-between text-white/80 text-[10px] font-medium">
-                            <span className="flex items-center gap-1">
-                              <CheckCheck className="w-3.5 h-3.5" /> Logged to Patient EHR
+                          <div className="mt-2 pt-2 border-t border-slate-700 flex justify-end">
+                            <span className="flex items-center gap-1 text-[10px] text-slate-300 font-medium">
+                              <CheckCheck className="w-3.5 h-3.5" /> Verified Clinical Advice
                             </span>
-                            <span>Verified Clinical Advice</span>
                           </div>
                         )}
                       </div>
@@ -837,201 +624,198 @@ export function ConsultationsInbox({
                   );
                 })
               ) : (
-                <div className="py-12 text-center text-gray-400 space-y-2">
-                  <MessageSquare className="w-10 h-10 text-gray-300 mx-auto" />
-                  <p className="text-xs font-semibold text-gray-600">No messages in this teleconsultation thread yet.</p>
-                  <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-                    Select a pre-approved clinical macro below or type tailored obstetric guidance to initiate contact with {activePatient?.full_name}.
-                  </p>
+                <div className="h-full flex flex-col items-center justify-center text-slate-400 space-y-3">
+                  <MessageSquare className="w-12 h-12 text-slate-200" />
+                  <p className="text-[14px] font-medium text-slate-500">No consultation messages logged yet.</p>
                 </div>
               )}
-
               <div ref={messagesEndRef} />
             </div>
 
-            {/* Clinical Quick Macros Ribbon */}
-            <div className="px-4 py-2 bg-slate-50 border-t border-gray-100 flex items-center gap-1.5 overflow-x-auto text-xs shrink-0 no-scrollbar">
-              <span className="text-[11px] font-bold text-gray-500 shrink-0 mr-1 flex items-center gap-1">
-                <Sparkles className="w-3.5 h-3.5 text-rose-600" /> Clinical Macros:
-              </span>
-              {CLINICAL_MACROS.map((macro, idx) => (
-                <button
-                  key={idx}
-                  onClick={() => {
-                    setReplyText(macro.text);
-                    if (macro.urgent) setIsUrgentReply(true);
-                  }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold transition-all shrink-0 flex items-center gap-1 border active:scale-95 ${
-                    macro.urgent
-                      ? 'bg-red-50 text-red-700 hover:bg-red-100 border-red-200'
-                      : 'bg-white text-gray-700 hover:bg-gray-100 border-gray-200/80 shadow-2xs'
-                  }`}
-                >
-                  {macro.title}
-                </button>
-              ))}
-            </div>
+            {/* Bottom Message Input Area */}
+            <div className="p-4 bg-white border-t border-slate-200 shrink-0">
+              {/* Quick Clinical Macros */}
+              <div className="flex items-center gap-2 overflow-x-auto pb-3 text-xs no-scrollbar">
+                {CLINICAL_MACROS.map((macro, idx) => (
+                  <button
+                    key={idx}
+                    onClick={() => {
+                      setReplyText(macro.text);
+                      if (macro.urgent) setIsUrgentReply(true);
+                    }}
+                    className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all shrink-0 flex items-center border hover:shadow-sm ${
+                      macro.urgent
+                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                    }`}
+                  >
+                    + {macro.title}
+                  </button>
+                ))}
+              </div>
 
-            {/* Clinical Message Compose Area */}
-            <form onSubmit={handleSendReply} className="p-4 bg-white border-t border-gray-100 shrink-0 space-y-2.5">
-              <div className="relative bg-slate-50 rounded-2xl border border-gray-200 focus-within:border-rose-500 focus-within:ring-2 focus-within:ring-rose-500/20 transition-all p-3">
-                <Textarea
-                  value={replyText}
-                  onChange={(e) => setReplyText(e.target.value)}
-                  placeholder={`Type clinical advice or note for ${activePatient?.full_name || 'patient'}... (Press Enter ↵ to send)`}
-                  rows={2}
-                  className="w-full bg-transparent p-0 text-xs sm:text-sm border-none shadow-none focus-visible:ring-0 resize-none min-h-[50px] max-h-32 text-gray-800 placeholder:text-gray-400"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendReply();
-                    }
-                  }}
-                />
-
-                <div className="pt-2 flex items-center justify-between border-t border-gray-200/60 mt-1">
-                  
-                  {/* Urgent Clinical Flag Toggle */}
-                  <label className="flex items-center gap-1.5 text-xs cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={isUrgentReply}
-                      onChange={(e) => setIsUrgentReply(e.target.checked)}
-                      className="rounded text-rose-600 focus:ring-rose-500 w-3.5 h-3.5"
-                    />
-                    <span className={`text-[11px] font-bold ${isUrgentReply ? 'text-red-700' : 'text-gray-500'}`}>
-                      🚨 Flag as Urgent Clinical Directive
-                    </span>
-                  </label>
-
-                  {/* Send Button */}
-                  <div className="flex items-center gap-2">
-                    <Button
-                      type="submit"
-                      disabled={isSending || !replyText.trim()}
-                      className="h-9 px-4 rounded-xl bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-700 hover:to-rose-800 text-white font-bold text-xs gap-1.5 shadow-md shadow-rose-200 active:scale-95 transition-all"
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      <span>{isSending ? 'Sending...' : 'Send Advice'}</span>
-                    </Button>
+              {/* Compose Box */}
+              <form onSubmit={handleSendReply} className="flex gap-3 items-end">
+                <div className="flex-1 relative bg-slate-50 rounded-2xl border border-slate-200 focus-within:border-rose-400 focus-within:ring-2 focus-within:ring-rose-100 transition-all shadow-sm">
+                  <Textarea
+                    value={replyText}
+                    onChange={(e) => setReplyText(e.target.value)}
+                    placeholder="Type clinical advice or triage notes here..."
+                    className="w-full bg-transparent p-4 text-[14px] border-none shadow-none focus-visible:ring-0 resize-none min-h-[56px] max-h-32 text-slate-800 placeholder:text-slate-400"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendReply();
+                      }
+                    }}
+                  />
+                  <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                    <button type="button" className="p-1.5 text-slate-400 hover:text-slate-600 transition-colors rounded-lg hover:bg-slate-100">
+                      <Paperclip className="w-4 h-4" />
+                    </button>
                   </div>
-
                 </div>
-              </div>
 
-              {/* Encrypted DPA Compliance Notice */}
-              <div className="flex items-center justify-between px-1 text-gray-400 text-[10px]">
-                <span className="flex items-center gap-1 text-emerald-700 font-semibold">
-                  <Lock className="w-3 h-3" /> Encrypted DPA RA 10173 Telehealth Channel • Logged to Patient EHR
-                </span>
-                <span className="font-mono">
-                  Press <kbd className="px-1 py-0.5 bg-gray-100 rounded border text-gray-600 font-bold">Enter ↵</kbd>
-                </span>
-              </div>
-            </form>
-
+                <Button
+                  type="submit"
+                  disabled={isSending || !replyText.trim()}
+                  className="h-[56px] px-6 rounded-2xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-[14px] gap-2 shadow-sm shadow-rose-200 transition-all flex items-center"
+                >
+                  <Send className="w-4 h-4" />
+                  <span>Send Advice</span>
+                </Button>
+              </form>
+            </div>
           </section>
         ) : (
-          <section className="flex-1 flex flex-col items-center justify-center p-8 text-center text-gray-400">
-            <MessageSquare className="w-14 h-14 text-gray-200 mb-3" />
-            <h3 className="text-base font-bold text-gray-700">No Patient Selected</h3>
-            <p className="text-xs max-w-sm mt-1 text-gray-500">
-              Select a teleconsultation conversation from the queue on the left to examine clinical history and triage inbound inquiries.
+          <section className="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-400 bg-slate-50">
+            <div className="w-16 h-16 bg-white rounded-full flex items-center justify-center shadow-sm border border-slate-100 mb-4">
+              <MessageSquare className="w-8 h-8 text-slate-300" />
+            </div>
+            <h3 className="text-lg font-bold text-slate-700">No Thread Selected</h3>
+            <p className="text-[14px] max-w-sm mt-2 text-slate-500">
+              Select a patient from the queue to review their clinical history and provide telehealth triage.
             </p>
           </section>
         )}
 
         {/* ══════════════════════════════════════════════════════════════ */}
-        {/* COLUMN 3: BEDSIDE CLINICAL SNAPSHOT DRAWER (~340px)          */}
+        {/* COLUMN 3: BEDSIDE CLINICAL SNAPSHOT DRAWER (~320-340px)      */}
         {/* ══════════════════════════════════════════════════════════════ */}
         {showRightDrawer && activeThread && (
-          <aside className="w-80 2xl:w-[340px] flex flex-col border-l border-gray-200/80 bg-white overflow-y-auto shrink-0 shadow-2xs">
-            
-            {/* Drawer Header with Direct Link to Full EMR Chart */}
-            <div className="p-3.5 border-b border-gray-100 bg-white flex items-center justify-between sticky top-0 z-10">
+          <aside className="w-80 2xl:w-[340px] flex flex-col border-l border-slate-200/80 bg-white/95 backdrop-blur-md overflow-y-auto shrink-0 shadow-xs">
+            {/* Drawer Header */}
+            <div className="p-3.5 border-b border-slate-100 bg-white/95 backdrop-blur-md flex items-center justify-between sticky top-0 z-10">
               <div className="flex items-center gap-2">
-                <Stethoscope className="w-4 h-4 text-rose-600" />
-                <h3 className="text-xs font-black text-gray-900 uppercase tracking-wider">
-                  Patient Clinical Snapshot
-                </h3>
+                <div className="w-7 h-7 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center">
+                  <Stethoscope className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                    Clinical Snapshot
+                  </h3>
+                  <span className="text-[10px] text-slate-400">Bedside Reference</span>
+                </div>
               </div>
-              
-              <Link
-                href={`/admin/patients/${activePatient?.id}`}
-                className="text-xs font-bold text-rose-600 hover:text-rose-700 hover:underline flex items-center gap-1"
-                target="_blank"
-              >
-                <span>Full Chart</span>
-                <ExternalLink className="w-3 h-3" />
-              </Link>
+
+              <div className="flex items-center gap-1.5">
+                <Link
+                  href={`/admin/patients/${activePatient?.id}`}
+                  className="text-[11px] font-bold text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-2.5 py-1 rounded-lg flex items-center gap-1 transition-colors"
+                  target="_blank"
+                >
+                  <span>Full Chart</span>
+                  <ExternalLink className="w-3 h-3" />
+                </Link>
+                <button
+                  onClick={() => setShowRightDrawer(false)}
+                  className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-colors"
+                  title="Close Snapshot Panel"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
             <div className="p-3.5 space-y-3">
-              
               {/* 1. Mother's Demographics Card */}
-              <div className="p-3.5 rounded-2xl bg-slate-50 border border-gray-200/80 space-y-2">
+              <div className="p-3.5 rounded-2xl bg-slate-50/80 border border-slate-200/70 space-y-2.5 shadow-2xs">
                 <div className="flex items-start justify-between">
-                  <div>
-                    <span className="font-bold text-sm text-gray-900 block">
+                  <div className="min-w-0 pr-2">
+                    <span className="font-bold text-sm text-slate-900 block truncate">
                       {activePatient?.full_name}
                     </span>
-                    <span className="text-[11px] text-gray-500">
-                      {activePatient?.date_of_birth ? `DOB: ${activePatient.date_of_birth}` : ''} ({activePatient?.age || '--'} yrs old)
+                    <span className="text-[11px] text-slate-500">
+                      {patientAge ? `${patientAge} yrs old` : 'Age unrecorded'}
+                      {activePatient?.date_of_birth ? ` • DOB: ${activePatient.date_of_birth}` : ''}
                     </span>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-800 text-[10px] font-bold border border-emerald-200">
-                    MCP Eligible
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0 ${
+                    activePatient?.philhealth_number 
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200' 
+                      : 'bg-slate-100 text-slate-600 border-slate-200'
+                  }`}>
+                    {activePatient?.philhealth_number ? 'PhilHealth MCP' : 'Private / Cash'}
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-200/60 text-xs">
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-200/60 text-xs">
                   <div>
-                    <span className="text-gray-400 block text-[10px]">PhilHealth PIN</span>
-                    <span className="font-mono font-bold text-gray-800">
+                    <span className="text-slate-400 block text-[10px]">PhilHealth PIN</span>
+                    <span className="font-mono font-bold text-slate-800 text-[11px] truncate block">
                       {activePatient?.philhealth_number || 'Not registered'}
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block text-[10px]">Blood Type / Rh</span>
-                    <span className="font-bold text-rose-700">
-                      {activePatient?.blood_type || 'Pending testing'}
+                    <span className="text-slate-400 block text-[10px]">Blood Type / Rh</span>
+                    <span className="font-bold text-rose-700 text-[11px] flex items-center gap-1">
+                      <Droplets className="w-3 h-3 text-rose-500" />
+                      {activePatient?.blood_type || activeThread?.recentLabs?.[0]?.blood_type || 'Pending test'}
                     </span>
                   </div>
                 </div>
               </div>
 
               {/* 2. Obstetric Profile & Gestation Progress Bar */}
-              <div className="p-3.5 rounded-2xl bg-white border border-gray-200/80 shadow-2xs space-y-2.5">
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-900">Obstetric Profile</span>
-                  <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-black border border-rose-200">
-                    G{gravida} P{para}
-                  </span>
+                  <span className="text-xs font-bold text-slate-900">Obstetric Profile</span>
+                  <div className="flex items-center gap-1.5">
+                    {obstetricData?.trimester && (
+                      <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold">
+                        {obstetricData.trimester}
+                      </span>
+                    )}
+                    <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 text-[10px] font-black border border-rose-200">
+                      G{gravida} P{para}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Progress Bar */}
-                <div className="space-y-1">
+                <div className="space-y-1.5">
                   <div className="flex justify-between text-xs font-semibold">
                     <span className="text-rose-700 font-bold">
-                      {obstetricData?.aogFormatted || 'Pending GA'} ({progressPercent}% Term)
+                      {obstetricData?.aogFormatted ? `${obstetricData.aogFormatted} AOG` : latestVitals?.aog_by_lmp || 'Pending GA'} 
+                      {progressPercent > 0 ? ` (${progressPercent}% Term)` : ''}
                     </span>
-                    <span className="text-gray-500">
-                      EDC: {obstetricData?.edcFormatted || 'Pending'}
+                    <span className="text-slate-500 text-[11px]">
+                      EDC: {activeEpisode?.edc ? new Date(activeEpisode.edc).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : obstetricData?.edcFormatted || 'Pending'}
                     </span>
                   </div>
                   
-                  <div className="w-full h-2 rounded-full bg-gray-100 overflow-hidden">
+                  <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
                     <div 
                       className="h-full rounded-full bg-gradient-to-r from-rose-500 to-rose-600 transition-all duration-500" 
                       style={{ width: `${progressPercent}%` }} 
                     />
                   </div>
 
-                  <div className="flex justify-between text-[10px] text-gray-400 pt-0.5">
-                    <span>LMP: {lmpDate || 'Not recorded'}</span>
+                  <div className="flex justify-between text-[10px] text-slate-400 pt-0.5">
+                    <span>LMP: {lmpDate ? new Date(lmpDate).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not recorded'}</span>
                     {daysToDue !== null && (
                       <span className="font-bold text-rose-600">
-                        {daysToDue > 0 ? `~${daysToDue} days to EDC` : 'Full Term'}
+                        {daysToDue > 0 ? `~${daysToDue} days to EDC` : daysToDue === 0 ? 'Due today!' : `${Math.abs(daysToDue)} days post-term`}
                       </span>
                     )}
                   </div>
@@ -1039,303 +823,183 @@ export function ConsultationsInbox({
               </div>
 
               {/* 3. Latest Bedside Clinic Vitals (Real Visit Logs) */}
-              <div className="p-3.5 rounded-2xl bg-white border border-gray-200/80 shadow-2xs space-y-2.5">
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                  <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
                     <HeartPulse className="w-4 h-4 text-rose-600" /> Latest Clinic Vitals
                   </span>
-                  <span className="text-[10px] text-gray-400 font-mono">
-                    {latestVitals?.visit_date ? latestVitals.visit_date : 'No logs yet'}
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {latestVitals?.visit_date ? new Date(latestVitals.visit_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No logs yet'}
                   </span>
                 </div>
 
                 {latestVitals ? (
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    {/* BP */}
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-gray-200/60">
-                      <div className="flex items-center justify-between text-gray-500 mb-0.5">
-                        <span className="text-[10px]">Blood Pressure</span>
-                        {isBpHypertensive ? (
-                          <AlertTriangle className="w-3 h-3 text-red-600" />
-                        ) : (
-                          <Activity className="w-3 h-3 text-emerald-600" />
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {/* BP */}
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                        <div className="flex items-center justify-between text-slate-500 mb-0.5">
+                          <span className="text-[10px] font-medium">Blood Pressure</span>
+                          {isBpHypertensive ? (
+                            <AlertTriangle className="w-3 h-3 text-red-600" />
+                          ) : (
+                            <Activity className="w-3 h-3 text-emerald-600" />
+                          )}
+                        </div>
+                        <div className={`text-base font-black ${isBpHypertensive ? 'text-red-700' : 'text-slate-900'}`}>
+                          {latestVitals.bp || '--/--'}
+                        </div>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
+                          isBpHypertensive ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
+                        }`}>
+                          {isBpHypertensive ? 'Hypertensive Watch' : 'Normotensive'}
+                        </span>
+                      </div>
+
+                      {/* FHT / Doppler */}
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                        <div className="flex items-center justify-between text-slate-500 mb-0.5">
+                          <span className="text-[10px] font-medium">Fetal Heart (FHT)</span>
+                          <Baby className="w-3 h-3 text-teal-600" />
+                        </div>
+                        <div className={`text-base font-black ${isFhrAbnormal ? 'text-amber-700' : 'text-teal-700'}`}>
+                          {latestVitals.fht || latestVitals.fhr || '--'} <span className="text-[10px] font-normal text-slate-500">bpm</span>
+                        </div>
+                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
+                          isFhrAbnormal ? 'bg-amber-100 text-amber-800' : 'bg-teal-100 text-teal-800'
+                        }`}>
+                          {isFhrAbnormal ? 'Monitor Doppler' : 'Reassuring (120-160)'}
+                        </span>
+                      </div>
+
+                      {/* Weight */}
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                        <div className="text-slate-500 text-[10px] font-medium mb-0.5">Maternal Weight</div>
+                        <div className="text-base font-black text-slate-900">
+                          {latestVitals.weight || '--'} <span className="text-[10px] font-normal text-slate-500">kg</span>
+                        </div>
+                        <span className="text-[9px] text-slate-400">Clinic scale</span>
+                      </div>
+
+                      {/* Fundic Height */}
+                      <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200/60">
+                        <div className="text-slate-500 text-[10px] font-medium mb-0.5">Fundic Height</div>
+                        <div className="text-base font-black text-slate-900">
+                          {latestVitals.fh || latestVitals.fundic_height || '--'} <span className="text-[10px] font-normal text-slate-500">cm</span>
+                        </div>
+                        <span className="text-[9px] text-teal-700 font-semibold">Uterine growth</span>
+                      </div>
+                    </div>
+
+                    {(latestVitals.temp || latestVitals.pr) && (
+                      <div className="p-2 rounded-xl bg-slate-50 border border-slate-200/60 flex items-center justify-between text-[11px] text-slate-600">
+                        {latestVitals.temp && (
+                          <span>Temp: <strong className="text-slate-800">{latestVitals.temp}°C</strong></span>
+                        )}
+                        {latestVitals.pr && (
+                          <span>Pulse: <strong className="text-slate-800">{latestVitals.pr} bpm</strong></span>
                         )}
                       </div>
-                      <div className={`text-base font-black ${isBpHypertensive ? 'text-red-700' : 'text-gray-900'}`}>
-                        {latestVitals.bp || '--/--'}
-                      </div>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                        isBpHypertensive ? 'bg-red-100 text-red-800' : 'bg-emerald-100 text-emerald-800'
-                      }`}>
-                        {isBpHypertensive ? 'Hypertensive Watch' : 'Normotensive'}
-                      </span>
-                    </div>
-
-                    {/* FHR */}
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-gray-200/60">
-                      <div className="flex items-center justify-between text-gray-500 mb-0.5">
-                        <span className="text-[10px]">Fetal HR (FHR)</span>
-                        <Baby className="w-3 h-3 text-teal-600" />
-                      </div>
-                      <div className={`text-base font-black ${isFhrAbnormal ? 'text-amber-700' : 'text-teal-700'}`}>
-                        {latestVitals.fhr ? `${latestVitals.fhr}` : '--'} <span className="text-[10px] font-normal text-gray-500">bpm</span>
-                      </div>
-                      <span className={`text-[9px] font-bold px-1.5 py-0.2 rounded ${
-                        isFhrAbnormal ? 'bg-amber-100 text-amber-800' : 'bg-teal-100 text-teal-800'
-                      }`}>
-                        {isFhrAbnormal ? 'Monitor Doppler' : 'Reassuring (120-160)'}
-                      </span>
-                    </div>
-
-                    {/* Weight */}
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-gray-200/60">
-                      <div className="text-gray-500 text-[10px] mb-0.5">Maternal Weight</div>
-                      <div className="text-base font-black text-gray-900">
-                        {latestVitals.weight ? `${latestVitals.weight}` : '--'} <span className="text-[10px] font-normal text-gray-500">kg</span>
-                      </div>
-                      <span className="text-[9px] text-gray-500">Prenatal scale</span>
-                    </div>
-
-                    {/* Fundic Height */}
-                    <div className="p-2.5 rounded-xl bg-slate-50 border border-gray-200/60">
-                      <div className="text-gray-500 text-[10px] mb-0.5">Fundic Height</div>
-                      <div className="text-base font-black text-gray-900">
-                        {latestVitals.fundic_height ? `${latestVitals.fundic_height}` : '--'} <span className="text-[10px] font-normal text-gray-500">cm</span>
-                      </div>
-                      <span className="text-[9px] text-teal-700 font-semibold">Uterine growth</span>
-                    </div>
+                    )}
                   </div>
                 ) : (
-                  <div className="p-4 rounded-xl bg-slate-50 text-center text-xs text-gray-400 space-y-1">
-                    <HeartPulse className="w-6 h-6 text-gray-300 mx-auto" />
-                    <p className="font-semibold text-gray-600">No Bedside Vitals Logged</p>
-                    <p className="text-[10px]">Schedule maternal visit to record BP, FHR, and weight.</p>
+                  <div className="p-4 rounded-xl bg-slate-50 text-center text-xs text-slate-400 space-y-1">
+                    <HeartPulse className="w-5 h-5 text-slate-300 mx-auto" />
+                    <p className="font-semibold text-slate-600">No Bedside Vitals Logged</p>
+                    <p className="text-[10px] text-slate-400">Prenatal visit records will appear here automatically.</p>
                   </div>
                 )}
               </div>
 
               {/* 4. Active High-Risk Clinical Checklist & Allergies */}
-              <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200 space-y-2">
-                <span className="text-xs font-bold text-amber-900 flex items-center gap-1.5">
-                  <AlertTriangle className="w-4 h-4 text-amber-700" /> Clinical Flags & Allergies
-                </span>
-                
-                <ul className="space-y-1.5 text-xs text-gray-800">
-                  <li className="flex items-start gap-1.5">
-                    <span className="text-amber-700 font-bold">•</span>
-                    <span>
-                      High-Risk Status: <strong>{activePatient?.is_high_risk ? 'FLAGGED HIGH-RISK' : 'Standard Routine'}</strong>
+              <div className={`p-3.5 rounded-2xl border space-y-2 ${
+                activePatient?.is_high_risk 
+                  ? 'bg-rose-50/70 border-rose-200' 
+                  : 'bg-slate-50/80 border-slate-200/70'
+              }`}>
+                <div className="flex items-center justify-between">
+                  <span className={`text-xs font-bold flex items-center gap-1.5 ${
+                    activePatient?.is_high_risk ? 'text-rose-900' : 'text-slate-800'
+                  }`}>
+                    {activePatient?.is_high_risk ? (
+                      <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                    )}
+                    Clinical Safety Status
+                  </span>
+                  {activePatient?.is_high_risk ? (
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-500" />
                     </span>
-                  </li>
-                  {activePatient?.high_risk_reasons && (
-                    <li className="flex items-start gap-1.5 text-red-800">
-                      <span className="text-red-600 font-bold">•</span>
-                      <span>{activePatient.high_risk_reasons}</span>
-                    </li>
+                  ) : (
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
                   )}
-                  <li className="flex items-start gap-1.5">
-                    <span className="text-amber-700 font-bold">•</span>
-                    <span>
-                      Allergies: <strong>{hasRealAllergies ? activePatient.allergies : 'No known drug allergies (NKDA)'}</strong>
-                    </span>
-                  </li>
-                </ul>
+                </div>
+
+                <div className="space-y-1.5 text-xs">
+                  <div className="flex items-start gap-1.5">
+                    <span className="font-semibold text-slate-600">Risk Tier:</span>
+                    <strong className={activePatient?.is_high_risk ? 'text-rose-700' : 'text-emerald-700'}>
+                      {activePatient?.is_high_risk ? 'Flagged High-Risk' : 'Standard Routine Care'}
+                    </strong>
+                  </div>
+
+                  {highRiskReasonsList.length > 0 && (
+                    <div className="pt-1 border-t border-rose-100 text-rose-800 space-y-1 text-[11px]">
+                      <span className="font-semibold block text-[10px] uppercase tracking-wider text-rose-700">Identified Safety Triggers:</span>
+                      {highRiskReasonsList.map((reason, idx) => (
+                        <div key={idx} className="flex items-start gap-1.5">
+                          <span className="text-rose-600 font-bold">•</span>
+                          <span>{reason}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="pt-1.5 border-t border-slate-200/60 flex items-start gap-1.5">
+                    <span className="font-semibold text-slate-600">Allergies:</span>
+                    <strong className={hasRealAllergies ? 'text-amber-800 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200' : 'text-slate-700'}>
+                      {hasRealAllergies ? activePatient.allergies : 'No known drug allergies (NKDA)'}
+                    </strong>
+                  </div>
+                </div>
               </div>
 
-              {/* 5. Emergency Kin Contact Details */}
-              <div className="p-3.5 rounded-2xl bg-white border border-gray-200/80 shadow-2xs space-y-2">
-                <span className="text-xs font-bold text-gray-900 block">Emergency Kin Contact</span>
-                
-                {activePatient?.husband_partner_name || activePatient?.emergency_contact_name ? (
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-gray-900 block">
-                        {activePatient.husband_partner_name || activePatient.emergency_contact_name}
+              {/* 5. Emergency Kin / Partner Contact */}
+              <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-2xs space-y-2">
+                <span className="text-xs font-bold text-slate-900 block">Emergency Kin Contact</span>
+
+                {activePatient?.husband_partner_name || activePatient?.contact_number ? (
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-slate-900 block truncate">
+                        {activePatient.husband_partner_name || 'Partner / Relative'}
                       </span>
-                      <span className="text-[11px] text-gray-500">
-                        {activePatient.emergency_contact_phone || activePatient.phone_number || activePatient.contact_number || 'No phone recorded'}
+                      <span className="text-[11px] text-slate-500 block truncate">
+                        {activePatient.contact_number || activePatient.phone_number || 'No contact phone recorded'}
                       </span>
                     </div>
 
-                    {(activePatient.emergency_contact_phone || activePatient.phone_number || activePatient.contact_number) && (
-                      <div className="flex items-center gap-1">
-                        <a 
-                          href={`tel:${activePatient.emergency_contact_phone || activePatient.phone_number || activePatient.contact_number}`}
-                          className="p-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-700 transition-colors"
-                          title="Call Contact"
-                        >
-                          <Phone className="w-3.5 h-3.5" />
-                        </a>
-                        <button
-                          onClick={() => copyPatientPhone(activePatient.emergency_contact_phone || activePatient.phone_number || activePatient.contact_number)}
-                          className="p-2 rounded-xl bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
-                          title="Copy Phone Number"
-                        >
-                          {copiedPhone ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
-                        </button>
-                      </div>
+                    {(activePatient.contact_number || activePatient.phone_number) && (
+                      <a 
+                        href={`tel:${activePatient.contact_number || activePatient.phone_number}`}
+                        className="p-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-teal-700 transition-colors shrink-0 flex items-center justify-center"
+                        title="Call Emergency Contact"
+                      >
+                        <Phone className="w-3.5 h-3.5" />
+                      </a>
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-gray-400 italic">No emergency kin contact recorded in profile.</p>
+                  <p className="text-xs text-slate-400 italic">No emergency contact recorded</p>
                 )}
-
-                {/* Send Clinic GPS Transit SMS Trigger */}
-                <button
-                  onClick={() => {
-                    const phone = activePatient?.phone_number || activePatient?.contact_number || activePatient?.emergency_contact_phone;
-                    if (phone) {
-                      window.open(`sms:${phone}?body=AR-JEN Maternity Clinic Address: San Roque, Marikina City. Please proceed for clinical assessment.`);
-                    }
-                  }}
-                  className="w-full py-1.5 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-700 text-xs font-semibold border border-gray-200 flex items-center justify-center gap-1.5 transition-colors"
-                >
-                  <MapPin className="w-3.5 h-3.5 text-rose-600" />
-                  <span>Send Clinic Location (SMS)</span>
-                </button>
               </div>
-
-              {/* 6. Primary Care Midwife / Attending Clinician Card */}
-              <div className="p-3 rounded-xl bg-slate-50 border border-gray-200/60 flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-rose-100 text-rose-700 flex items-center justify-center shrink-0">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div className="text-xs min-w-0">
-                  <span className="text-gray-400 block text-[10px]">Attending Clinician Lead</span>
-                  <span className="font-bold text-gray-900 truncate block">
-                    {currentStaff?.fullName || 'RM Clinician on Duty'}
-                  </span>
-                  <span className="text-[10px] text-teal-700 font-semibold">DOH BEmONC Certified</span>
-                </div>
-              </div>
-
             </div>
           </aside>
         )}
-
       </div>
-
-      {/* ──────────────────────────────────────────────────────────── */}
-      {/* 3. MODALS & SLIDE-OVERS                                     */}
-      {/* ──────────────────────────────────────────────────────────── */}
-
-      {/* BEmONC Referral Emergency Transfer Modal */}
-      <EmergencyTransferModal
-        patient={activePatient}
-        activeEpisode={activeEpisode}
-        obstetricData={obstetricData}
-        latestVisitLog={latestVitals}
-        isOpen={showTransferModal}
-        onClose={() => setShowTransferModal(false)}
-      />
-
-      {/* Video Consultation Modal */}
-      {showVideoModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-gray-200 shadow-2xl max-w-md w-full p-6 space-y-5">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-md shadow-teal-200">
-                  <Video className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-base text-gray-900">Video Teleconsultation</h3>
-                  <p className="text-xs text-gray-500">Secure encrypted peer room</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setShowVideoModal(false)}
-                className="p-1 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-xs text-gray-600 leading-relaxed">
-                Connect live with <strong>{activePatient?.full_name}</strong> via a private, zero-download WebRTC video room.
-              </p>
-
-              <div className="p-3 bg-slate-50 rounded-xl border border-gray-200 text-xs font-mono break-all text-gray-700">
-                {videoRoomUrl}
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  onClick={copyVideoInvitation}
-                  variant="outline"
-                  className="flex-1 rounded-xl text-xs font-bold gap-1.5 border-gray-200"
-                >
-                  {copiedLink ? <Check className="w-4 h-4 text-emerald-600" /> : <Copy className="w-4 h-4" />}
-                  <span>{copiedLink ? 'Copied Invitation!' : 'Copy Link for Patient'}</span>
-                </Button>
-
-                <Button
-                  onClick={() => window.open(videoRoomUrl, '_blank')}
-                  className="flex-1 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs gap-1.5 shadow-sm"
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  <span>Join Video Call</span>
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* DOH Protocol Checklist Modal */}
-      {showDohChecklist && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-          <div className="bg-white rounded-3xl border border-gray-200 shadow-2xl max-w-lg w-full p-6 space-y-4 max-h-[85vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-rose-600" />
-                <h3 className="font-bold text-base text-gray-900">DOH BEmONC Danger Signs Protocol</h3>
-              </div>
-              <button
-                onClick={() => setShowDohChecklist(false)}
-                className="p-1 rounded-xl text-gray-400 hover:text-gray-700 hover:bg-gray-100"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs text-gray-700">
-              <div className="p-3 bg-red-50 rounded-2xl border border-red-200 space-y-1">
-                <span className="font-bold text-red-900 text-xs block">Immediate STAT Transfer Indications:</span>
-                <ul className="list-disc list-inside space-y-0.5 text-red-800 text-[11px]">
-                  <li>Vaginal bleeding / hemorrhage at any gestational age</li>
-                  <li>Severe headache with visual disturbance / epigastric pain (Pre-eclampsia)</li>
-                  <li>Systolic BP ≥ 160 mmHg or Diastolic BP ≥ 110 mmHg</li>
-                  <li>Premature rupture of membranes &gt; 12 hours or meconium stained amniotic fluid</li>
-                  <li>Fetal bradycardia (&lt; 110 bpm) or fetal tachycardia (&gt; 160 bpm)</li>
-                </ul>
-              </div>
-
-              <div className="p-3 bg-slate-50 rounded-2xl border border-gray-200 space-y-1">
-                <span className="font-bold text-gray-900 text-xs block">Standard Clinic Triage Steps:</span>
-                <ol className="list-decimal list-inside space-y-1 text-gray-600 text-[11px]">
-                  <li>Position patient on left lateral decubitus position.</li>
-                  <li>Record maternal BP, heart rate, respiratory rate, and temperature.</li>
-                  <li>Palpate uterine fundus for tone, tenderness, and contraction frequency.</li>
-                  <li>Auscultate fetal heart tones for 1 full minute with Doppler.</li>
-                  <li>If transferring, initiate DOH Referral Form and call destination tertiary hospital.</li>
-                </ol>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <Button
-                onClick={() => setShowDohChecklist(false)}
-                className="rounded-xl bg-gray-900 text-white font-bold text-xs"
-              >
-                Close Protocol Guide
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
     </div>
   );
 }

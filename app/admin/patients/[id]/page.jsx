@@ -75,8 +75,8 @@ export default async function PatientDetailPage({ params, searchParams }) {
   });
 
   const activeEpisode = (selectedEpisodeId ? maternalEpisodes?.find(e => e.id === selectedEpisodeId) : null)
-    || maternalEpisodes?.find(e => e.status === 'Active') 
-    || maternalEpisodes?.[0] 
+    || maternalEpisodes?.find(e => e.status === 'Active')
+    || maternalEpisodes?.[0]
     || null;
 
   return (
@@ -120,11 +120,11 @@ export default async function PatientDetailPage({ params, searchParams }) {
       <PatientTabsWrapper
         defaultTab={defaultTab}
         tabs={[
-          { value: 'profile',      label: 'Overview & Profile' },
-          { value: 'clinical',     label: 'Prenatal Visits' },
-          { value: 'labs',         label: 'Structured Labs & Ultrasound' },
-          { value: 'postpartum',   label: 'Postpartum & Newborn Care' },
-          { value: 'birthplan',    label: 'Birth Plan & Documents' },
+          { value: 'profile', label: 'Overview & Profile' },
+          { value: 'clinical', label: 'Prenatal Visits' },
+          { value: 'labs', label: 'Structured Labs & Ultrasound' },
+          { value: 'postpartum', label: 'Postpartum & Newborn Care' },
+          { value: 'birthplan', label: 'Birth Plan & Documents' },
         ]}
       >
 
@@ -140,6 +140,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
             consultationMessages={consultationMessages || []}
             modularData={prenatalRecord?.modular_data}
             updateModularData={updateModularData}
+            visitLogs={visitLogs || []}
           />
         </TabsContent>
 
@@ -191,13 +192,13 @@ export default async function PatientDetailPage({ params, searchParams }) {
               {birthPlan && (
                 <div className="mb-8 grid grid-cols-2 md:grid-cols-3 gap-4 p-5 bg-blue-50/50 border border-blue-100 rounded-2xl">
                   {[
-                    { label: 'Manganganak sa',         value: birthPlan.delivery_location },
-                    { label: 'Magpapaanak',             value: birthPlan.birth_attendant },
-                    { label: 'Kasama',                  value: birthPlan.companion_type === 'Kapamilya' ? `Kapamilya${birthPlan.companion_family_name ? ` — ${birthPlan.companion_family_name}` : ''}` : birthPlan.companion_type },
-                    { label: 'PhilHealth Facility',     value: birthPlan.is_philhealth_facility },
-                    { label: 'Active PhilHealth Member',value: birthPlan.is_philhealth_member },
-                    { label: 'PhilHealth No.',          value: birthPlan.philhealth_number },
-                    { label: 'Mode of Payment',         value: birthPlan.payment_method },
+                    { label: 'Manganganak sa', value: birthPlan.delivery_location },
+                    { label: 'Magpapaanak', value: birthPlan.birth_attendant },
+                    { label: 'Kasama', value: birthPlan.companion_type === 'Kapamilya' ? `Kapamilya${birthPlan.companion_family_name ? ` — ${birthPlan.companion_family_name}` : ''}` : birthPlan.companion_type },
+                    { label: 'PhilHealth Facility', value: birthPlan.is_philhealth_facility },
+                    { label: 'Active PhilHealth Member', value: birthPlan.is_philhealth_member },
+                    { label: 'PhilHealth No.', value: birthPlan.philhealth_number },
+                    { label: 'Mode of Payment', value: birthPlan.payment_method },
                   ].map(item => (
                     <div key={item.label}>
                       <p className="text-[10px] font-black text-blue-400 uppercase tracking-widest">{item.label}</p>

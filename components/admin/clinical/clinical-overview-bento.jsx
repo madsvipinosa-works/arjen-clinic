@@ -28,6 +28,7 @@ import { Button } from '@/components/ui/button';
 import { TeleconsultSummaryCard } from '@/components/admin/clinical/teleconsult-summary-card';
 import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
 import { ModularRecordEditor } from '@/components/admin/modular-record-editor';
+import { PhilHealthMCPCard } from '@/components/admin/clinical/philhealth-mcp-card';
 
 export function ClinicalOverviewBento({
   patient,
@@ -40,6 +41,7 @@ export function ClinicalOverviewBento({
   consultationMessages = [],
   modularData,
   updateModularData,
+  visitLogs = [],
   onSwitchTab
 }) {
   const [showModularEditor, setShowModularEditor] = useState(false);
@@ -520,6 +522,15 @@ export function ClinicalOverviewBento({
             </button>
           </div>
         </div>
+      </div>
+
+      {/* ── Third Bento Row: PhilHealth MCP Tracker ── */}
+      <div className="grid grid-cols-1 gap-6 items-start">
+        <PhilHealthMCPCard 
+          patientId={patient?.id} 
+          activeEpisode={activeEpisode} 
+          visitLogs={visitLogs} 
+        />
       </div>
 
       {/* ── Bottom Section: Demographics & Contact Profile ── */}
