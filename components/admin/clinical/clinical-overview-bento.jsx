@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   HeartPulse,
@@ -22,13 +22,20 @@ import {
   Activity,
   CheckCircle2,
   Clock,
-  Sparkles
+  Sparkles,
+  Stethoscope,
+  BellRing,
+  ClipboardList,
+  Syringe,
+  FlaskRound,
+  ScanLine
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { TeleconsultSummaryCard } from '@/components/admin/clinical/teleconsult-summary-card';
 import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
 import { ModularRecordEditor } from '@/components/admin/modular-record-editor';
 import { PhilHealthMCPCard } from '@/components/admin/clinical/philhealth-mcp-card';
+import { calculateObstetricDates } from '@/lib/clinical-protocols';
 
 export function ClinicalOverviewBento({
   patient,
@@ -45,6 +52,70 @@ export function ClinicalOverviewBento({
   onSwitchTab
 }) {
   const [showModularEditor, setShowModularEditor] = useState(false);
+
+  // ── Live AOG Calculation from LMP ──────────────────────────────────────────
+  const liveObstetric = useMemo(() => {
+    const lmpDate = activeEpisode?.lmp;
+    if (!lmpDate) return null;
+    return calculateObstetricDates(lmpDate);
+  }, [activeEpisode?.lmp]);
+
+  // ── Milestone Clinical Alerts based on current AOG ─────────────────────────
+  const milestoneAlerts = useMemo(() => {
+    if (!liveObstetric?.isValid) return [];
+    const w = liveObstetric.aogWeeks;
+    const alerts = [];
+
+    if (w >= 24 && w < 28) {
+      alerts.push({
+        icon: FlaskRound,
+        color: 'amber',
+        title: '75g OGTT Due — Gestational Diabetes Screening',
+        body: 'Oral Glucose Tolerance Test (OGTT) should be ordered now (24–28 weeks). Fasting blood sugar + 1-hr + 2-hr draw.',
+      });
+    }
+    if (w >= 28 && w < 32) {
+      alerts.push({
+        icon: FlaskConical,
+        color: 'sky',
+        title: 'Repeat CBC & Iron Studies Recommended',
+        body: 'Check hemoglobin trend at 28–32 weeks to detect worsening anemia before third trimester.',
+      });
+    }
+    if (w >= 32 && w < 37) {
+      alerts.push({
+        icon: ScanLine,
+        color: 'indigo',
+        title: '3rd Trimester Ultrasound & Biophysical Profile Due',
+        body: 'Schedule growth biometry ultrasound, AFI assessment, and repeat CBC between 32–36 weeks.',
+      });
+    }
+    if (w >= 36 && w < 37) {
+      alerts.push({
+        icon: ClipboardList,
+        color: 'rose',
+        title: 'Birth Plan Review & Blood Donor Commitment Due',
+        body: 'At 36 weeks: confirm delivery plan, hospital preference, blood type, and designated donor names.',
+      });
+    }
+    if (w >= 37 && w <= 41) {
+      alerts.push({
+        icon: BellRing,
+        color: 'emerald',
+        title: 'Full Term — Labor Monitoring Preparedness',
+        body: 'Patient is at full term. Educate mother on danger signs of labor: regular contractions, bloody show, membrane rupture.',
+      });
+    }
+    if (w >= 42) {
+      alerts.push({
+        icon: AlertTriangle,
+        color: 'red',
+        title: 'Post-Term Pregnancy (≥42 Weeks) — Urgent Review',
+        body: 'High risk for oligohydramnios and meconium aspiration. Urgent OB-GYN evaluation for membrane sweeping or induction.',
+      });
+    }
+    return alerts;
+  }, [liveObstetric]);
 
   // Blood Pressure Classification based on Philippine Clinical Guidelines
   const evaluateBP = (bpStr) => {
@@ -97,8 +168,133 @@ export function ClinicalOverviewBento({
 
   const fhrEval = evaluateFHR(latestVisitLog?.fhr);
 
+  // Trimester pill styling helper
+  const trimesterStyle = (trimester) => {
+    if (trimester === '3rd Trimester') return { badge: 'bg-rose-100 text-rose-700 border-rose-200', dot: 'bg-rose-500' };
+    if (trimester === '2nd Trimester') return { badge: 'bg-orange-100 text-orange-700 border-orange-200', dot: 'bg-orange-500' };
+    return { badge: 'bg-sky-100 text-sky-700 border-sky-200', dot: 'bg-sky-500' };
+  };
+
+  const milestoneColorMap = {
+    amber:   { wrap: 'bg-amber-50/90 border-l-amber-500',  icon: 'text-amber-600',  title: 'text-amber-900',  body: 'text-amber-800' },
+    sky:     { wrap: 'bg-sky-50/90 border-l-sky-500',      icon: 'text-sky-600',    title: 'text-sky-900',   body: 'text-sky-800' },
+    indigo:  { wrap: 'bg-indigo-50/90 border-l-indigo-500',icon: 'text-indigo-600', title: 'text-indigo-900',body: 'text-indigo-800' },
+    rose:    { wrap: 'bg-rose-50/90 border-l-rose-500',    icon: 'text-rose-600',   title: 'text-rose-900',  body: 'text-rose-800' },
+    emerald: { wrap: 'bg-emerald-50/90 border-l-emerald-500',icon:'text-emerald-600',title:'text-emerald-900',body:'text-emerald-800' },
+    red:     { wrap: 'bg-red-50/90 border-l-red-500 animate-pulse', icon: 'text-red-600',  title: 'text-red-900',   body: 'text-red-800' },
+  };
+
   return (
     <div className="space-y-6">
+
+      {/* ── SPRINT A: AOG Bento Card ──────────────────────────────────────── */}
+      {liveObstetric?.isValid && (
+        <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 shadow-sm border border-gray-200/80 hover:shadow-md transition-all duration-200">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-gradient-to-tr from-rose-500 to-pink-400 text-white flex items-center justify-center shadow-sm shadow-rose-500/25">
+                <Calendar className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-black text-gray-900 text-lg tracking-tight">Age of Gestation</h3>
+                <p className="text-xs text-gray-500 font-medium">Auto-calculated from LMP · Naegele&apos;s Rule</p>
+              </div>
+            </div>
+            {/* Progress bar: days elapsed / 280 */}
+            <div className="hidden sm:flex flex-col items-end gap-1">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-wider">
+                {liveObstetric.daysElapsed} / 280 days
+              </span>
+              <div className="w-40 h-2 bg-gray-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-rose-400 to-rose-500 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, Math.round((liveObstetric.daysElapsed / 280) * 100))}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Hero AOG Display */}
+          <div className="flex flex-col sm:flex-row sm:items-end gap-4 mb-5">
+            <div>
+              <div className="text-5xl sm:text-6xl font-black text-gray-900 tracking-tight tabular-nums leading-none">
+                {liveObstetric.aogWeeks}
+                <span className="text-2xl sm:text-3xl font-bold text-gray-500 ml-2">wks</span>
+                {liveObstetric.aogDays > 0 && (
+                  <>
+                    <span className="text-3xl font-black text-gray-900 ml-3">{liveObstetric.aogDays}</span>
+                    <span className="text-xl font-bold text-gray-500 ml-1">days</span>
+                  </>
+                )}
+              </div>
+              <p className="text-[11px] text-gray-400 mt-1 font-medium font-mono">
+                ({liveObstetric.aogFormatted} obstetric notation)
+              </p>
+            </div>
+          </div>
+
+          {/* Pill Badges Row */}
+          <div className="flex flex-wrap items-center gap-2 mb-5">
+            {/* Trimester */}
+            <span className={`inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full border ${
+              trimesterStyle(liveObstetric.trimester).badge
+            }`}>
+              <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${trimesterStyle(liveObstetric.trimester).dot}`} />
+              {liveObstetric.trimester}
+            </span>
+
+            {/* EDC */}
+            <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold px-3 py-1 rounded-full border bg-gray-100 text-gray-700 border-gray-200">
+              <Calendar className="w-3 h-3" />
+              EDC: {liveObstetric.edcFormatted}
+            </span>
+
+            {/* Term Status */}
+            {liveObstetric.boundaryAlert && (
+              <span className={`inline-flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider px-3 py-1 rounded-full border ${
+                liveObstetric.isPostTerm
+                  ? 'bg-red-100 text-red-700 border-red-200'
+                  : liveObstetric.isPreterm
+                  ? 'bg-amber-100 text-amber-800 border-amber-200'
+                  : liveObstetric.isTerm
+                  ? 'bg-emerald-100 text-emerald-700 border-emerald-200'
+                  : 'bg-purple-100 text-purple-700 border-purple-200'
+              }`}>
+                {liveObstetric.isPostTerm ? '⚠ Post-Term' : liveObstetric.isPreterm ? '⚡ Preterm' : liveObstetric.isTerm ? '✓ Full Term' : 'Post-Term'}
+              </span>
+            )}
+          </div>
+
+          {/* ── SPRINT B: Milestone Clinical Alert Banners ─────────────────── */}
+          {milestoneAlerts.length > 0 && (
+            <div className="space-y-2.5">
+              <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-1.5">
+                <BellRing className="w-3 h-3" /> Clinical Milestone Alerts
+              </p>
+              {milestoneAlerts.map((alert, idx) => {
+                const colors = milestoneColorMap[alert.color] || milestoneColorMap.amber;
+                const Icon = alert.icon;
+                return (
+                  <div
+                    key={idx}
+                    className={`flex gap-3 p-3.5 rounded-2xl border-l-4 border border-transparent transition-all ${colors.wrap}`}
+                  >
+                    <div className={`mt-0.5 flex-shrink-0 ${colors.icon}`}>
+                      <Icon className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <p className={`text-xs font-black ${colors.title}`}>{alert.title}</p>
+                      <p className={`text-[11px] mt-0.5 leading-relaxed ${colors.body}`}>{alert.body}</p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Top Bento Row: Latest Vitals & Latest Diagnostics (2-Col Grid) ── */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         
