@@ -2,7 +2,7 @@
 
 > **Single Source of Truth for AI Agents & Developers**  
 > **Last Updated:** September 2026  
-> **Status:** Part 1 (EMR Overhaul) & Part 2 (Automations) COMPLETE. Part 3 (Reception & Clinical Protocols) IN QUEUE.
+> **Status:** Part 1 (EMR Overhaul), Part 2 (Automations), & Part 3 (Reception & Maternal Protocols) COMPLETE. Emergency Medicine Monitor IN QUEUE.
 
 ---
 
@@ -55,42 +55,27 @@
   - `/api/cron/recalls`: Runs daily at 9:00 AM for Postpartum Day 3–5 Newborn Screening (NBS) reminders and 6-Week vaccination recalls.
 - **Sprint 4 (EOD Clinical Digest):**
   - `/api/cron/eod-report`: Runs nightly at 8:00 PM to compile an executive operational summary (patient counts, service breakdowns, no-shows, and high-risk flags) sent to the clinic administrator. Revenue has been strictly omitted.
-- **Config & Infrastructure:**
-  - `vercel.json` configured with all 4 cron endpoints.
-  - All migrations applied to Supabase database.
-  - All Part 2 code committed and pushed to GitHub (`master`).
+
+### Part 3: Reception & Clinical Protocol Enhancements (Completed Sep 2026)
+- **Priority 1: Reception & Queue Flow:**
+  - `QuickWalkInModal` component (`components/admin/quick-walkin-modal.jsx`): 30-second dialog, instant patient deduplication and direct injection into live Kanban `Waiting` triage lane.
+  - Past Appointments Date Range Filters & CSV Export (`app/admin/appointments/page.jsx`, `components/admin/appointments-manager.jsx`).
+  - Public Lobby TV Queue Display (`/queue`, `app/queue/page.jsx`): Real-time Supabase subscription, audio chime, and text-to-speech ticket calling.
+- **Priority 2: Maternal Clinical Protocols:**
+  - Dynamic Age of Gestation (AOG) Auto-Calculation (`components/admin/clinical/clinical-overview-bento.jsx`, `lib/clinical-protocols.js`): Real-time Naegele's rule calculation, gestational progress bar, trimester badges, and milestone clinical alerts (OGTT, CBC, Ultrasound, Birth Plan, Term).
+  - Structured Lab Test Tracker (`components/admin/clinical/prenatal-labs-section.jsx`): Normal reference ranges and real-time anomaly detection for Hb, Urinalysis, HBsAg, VDRL, HIV, and OGTT.
+  - Philippine DOH Newborn Care Protocol (`components/admin/clinical/postpartum-tab-content.jsx`): Full DOH EINC protocol checklist, NBS Filter Card #, Hearing Screening, Vitamin K, Hep B birth dose, BCG, eye prophylaxis.
+- **Priority 3: Staff RBAC & Audit Trail:**
+  - Role hierarchy & permissions (`lib/rbac.js`), immutable audit log recording (`lib/audit-logger.js`), and audit trail viewer (`app/admin/audit-logs/page.jsx`).
 
 ---
 
 ## 4. Active Roadmap: Remaining In-Scope Tasks 📌
 
-### Phase 3: Reception & Clinical Protocol Enhancements
-
-#### Priority 1: Reception & Queue Flow
-1. **Quick Walk-In Booking Modal:**
-   - Add a `+ Quick Walk-In` button to the `/admin/appointments` header.
-   - 30-second dialog: Name, Contact, Service Type.
-   - Instantly creates patient record (or links existing) and drops them directly into the `Waiting` triage lane on the live board.
-2. **Past Appointments Date Range Filter & Export:**
-   - Remove the hardcoded `.gte("appointment_date", todayStr)` limitation in `app/admin/appointments/page.jsx`.
-   - Add filter tabs (`Today`, `This Week`, `Past 30 Days`, `Custom Date Range`) and CSV/Excel export.
-3. **Public Lobby TV Queue Display (`/queue`):**
-   - Clean, full-screen, high-contrast display meant for waiting room monitors.
-   - Features: "Now Serving" (Ticket # & masked name), "In Triage", and "Next in Line".
-
-#### Priority 2: Maternal Clinical Protocols
-4. **Dynamic Age of Gestation (AOG) Auto-Calculation:**
-   - Auto-calculate and populate AOG (Weeks + Days) in `visit_logs` from `maternal_episodes.lmp` when visit date is selected.
-5. **Structured Lab Test Tracker:**
-   - Structured table with normal reference ranges for Hemoglobin, Urinalysis (Protein/Sugar), Blood Typing, HBsAg, Syphilis (VDRL/RPR), and OGTT.
-6. **Philippine DOH Newborn Care Protocol:**
-   - Structured tracking for Newborn Screening (NBS) Filter Card #, Hearing Test, Vitamin K, Hepatitis B birth dose, and Erythromycin eye ointment.
-
-#### Priority 3: Pharmacy & Security
-7. **Emergency Supplies & Critical Medicine Monitor:**
+### Phase 3 Remaining: Pharmacy & Emergency Inventory
+1. **Emergency Supplies & Critical Medicine Monitor:**
    - Low-stock and expiration monitor for critical delivery drugs (Oxytocin, Magnesium Sulfate, Tranexamic Acid, IV Fluids).
-8. **Staff RBAC & Audit Trail:**
-   - Role separation (Doctor/OB-GYN, Midwife/Nurse, Receptionist) and immutable `audit_logs` for medical record modifications.
+   - Real-time stock level indicator, expiry alerts, and restock prompts for delivery room emergency kits.
 
 ---
 
