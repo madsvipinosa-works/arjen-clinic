@@ -58,32 +58,83 @@ export default async function AdminConsultationsPage({ searchParams }) {
     .select('*')
     .order('created_at', { ascending: true });
 
-  // 2. Fetch all patients who have participated in consultations (plus requested patient if deep-linked)
+  // 2. Fetch registered patients (including any deep-linked patient)
   const messagePatientIds = Array.from(new Set(messages?.map(m => m.patient_id) || []));
   const targetPatientIds = requestedPatientId && !messagePatientIds.includes(requestedPatientId)
     ? [...messagePatientIds, requestedPatientId]
     : messagePatientIds;
 
-  let patients = [];
-  if (targetPatientIds.length > 0) {
-    const { data: patientsData } = await supabase
+  const { data: allPatients } = await supabase
+    .from('patients')
+    .select(`
+      *,
+      maternal_episodes (id, lmp, edc, gravidity, parity, gravida, para, status, created_at)
+    `)
+    .order('created_at', { ascending: false })
+    .limit(60);
+
+  const patientsList = allPatients || [];
+
+  // If there are requested or message patients not in the limit(60) query, fetch them specifically
+  const loadedIds = new Set(patientsList.map(p => p.id));
+  const missingIds = targetPatientIds.filter(id => !loadedIds.has(id));
+  if (missingIds.length > 0) {
+    const { data: missingPatients } = await supabase
       .from('patients')
       .select(`
-        id, full_name, age, phone_number, is_high_risk, high_risk_reasons,
-        maternal_episodes (id, lmp, edc, gravidity, parity, status)
+        *,
+        maternal_episodes (id, lmp, edc, gravidity, parity, gravida, para, status, created_at)
       `)
-      .in('id', targetPatientIds);
-
-    patients = patientsData || [];
+      .in('id', missingIds);
+    if (missingPatients) {
+      patientsList.push(...missingPatients);
+    }
   }
 
-  // 3. Assemble thread structures
+  // 3. Fetch latest visit logs & lab results for clinical snapshot drawer
+  const patientIds = patientsList.map(p => p.id);
+  const visitLogsByPatient = {};
+  const labsByPatient = {};
+
+  if (patientIds.length > 0) {
+    const [{ data: visitLogs }, { data: labResults }] = await Promise.all([
+      supabase
+        .from('visit_logs')
+        .select('*')
+        .in('patient_id', patientIds)
+        .order('visit_date', { ascending: false }),
+      supabase
+        .from('prenatal_lab_results')
+        .select('*')
+        .in('patient_id', patientIds)
+        .order('test_date', { ascending: false })
+    ]);
+
+    visitLogs?.forEach(log => {
+      if (!visitLogsByPatient[log.patient_id]) {
+        visitLogsByPatient[log.patient_id] = [];
+      }
+      visitLogsByPatient[log.patient_id].push(log);
+    });
+
+    labResults?.forEach(lab => {
+      if (!labsByPatient[lab.patient_id]) {
+        labsByPatient[lab.patient_id] = [];
+      }
+      labsByPatient[lab.patient_id].push(lab);
+    });
+  }
+
+  // 4. Assemble thread structures
   const threadsMap = new Map();
 
-  // Populate map for each patient
-  patients.forEach(patient => {
+  patientsList.forEach(patient => {
+    const logs = visitLogsByPatient[patient.id] || [];
+    const labs = labsByPatient[patient.id] || [];
     threadsMap.set(patient.id, {
       patient,
+      latestVisitLog: logs[0] || null,
+      recentLabs: labs.slice(0, 5),
       messages: [],
       lastMessage: null,
       hasUrgent: false,
@@ -95,9 +146,10 @@ export default async function AdminConsultationsPage({ searchParams }) {
   messages?.forEach(msg => {
     let thread = threadsMap.get(msg.patient_id);
     if (!thread) {
-      // In case patient profile was deleted or not found
       thread = {
         patient: { id: msg.patient_id, full_name: msg.sender_name || 'Patient' },
+        latestVisitLog: null,
+        recentLabs: [],
         messages: [],
         lastMessage: null,
         hasUrgent: false,
@@ -118,24 +170,42 @@ export default async function AdminConsultationsPage({ searchParams }) {
     }
   });
 
-  // Convert map to array and sort by requested patient first, then by most recent message DESC
+  // Convert map to array and sort:
+  // 1. Requested patient (if any) first
+  // 2. Active threads with messages sorted by lastMessage DESC
+  // 3. Other clinic patients sorted alphabetically
   const threadsList = Array.from(threadsMap.values()).sort((a, b) => {
     if (requestedPatientId) {
       if (a.patient?.id === requestedPatientId) return -1;
       if (b.patient?.id === requestedPatientId) return 1;
     }
+    const hasMsgA = a.messages.length > 0;
+    const hasMsgB = b.messages.length > 0;
+    if (hasMsgA && !hasMsgB) return -1;
+    if (!hasMsgA && hasMsgB) return 1;
+
     const timeA = a.lastMessage?.created_at ? new Date(a.lastMessage.created_at).getTime() : 0;
     const timeB = b.lastMessage?.created_at ? new Date(b.lastMessage.created_at).getTime() : 0;
-    return timeB - timeA;
+    if (timeA !== timeB) return timeB - timeA;
+
+    return (a.patient?.full_name || '').localeCompare(b.patient?.full_name || '');
   });
 
+  const currentStaff = {
+    id: user.id,
+    email: userData?.email || user.email || '',
+    role: userRole,
+    fullName: userData?.full_name || userData?.email?.split('@')[0] || 'Clinician On Duty',
+  };
+
   return (
-    <div className="max-w-7xl mx-auto p-4 sm:p-6 space-y-4">
+    <div className="w-full">
       <ConsultationsInbox
         initialThreads={threadsList}
         currentStaffRole={userRole}
         currentStaffId={user.id}
         currentStaffEmail={userData?.email || user.email || ''}
+        currentStaff={currentStaff}
         requestedPatientId={requestedPatientId}
       />
     </div>
