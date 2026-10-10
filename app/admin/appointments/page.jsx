@@ -1,7 +1,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { updateAppointmentStatus, updateTriageStatus, fetchAppointments } from "../../actions";
 import { AppointmentsManager } from "@/components/admin/appointments-manager";
-import { getClinicTodayDateString } from "@/lib/utils";
+import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
 
 export const metadata = {
   title: "Appointments & Reception Queue | AR-JEN Clinic Admin",
@@ -17,7 +17,6 @@ export default async function AppointmentsPage({ searchParams }) {
   const statusFilter = params?.status;
 
   const todayStr = getClinicTodayDateString();
-  const today = new Date();
 
   let query = supabase
     .from("appointments")
@@ -39,7 +38,9 @@ export default async function AppointmentsPage({ searchParams }) {
         full_name,
         contact_number,
         is_high_risk,
-        allergies
+        allergies,
+        blood_type,
+        age
       )
     `);
 
@@ -48,21 +49,15 @@ export default async function AppointmentsPage({ searchParams }) {
     query = query.eq("status", statusFilter);
   }
 
-  // Date Range Presets
+  // Date Range Presets (strictly in Asia/Manila)
   if (range === "today") {
     query = query.eq("appointment_date", todayStr);
   } else if (range === "yesterday") {
-    const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
-    query = query.eq("appointment_date", yesterday.toISOString().split("T")[0]);
+    query = query.eq("appointment_date", getClinicDateOffset(-1));
   } else if (range === "week") {
-    const weekAgo = new Date(today);
-    weekAgo.setDate(weekAgo.getDate() - 7);
-    query = query.gte("appointment_date", weekAgo.toISOString().split("T")[0]);
+    query = query.gte("appointment_date", getClinicDateOffset(-7));
   } else if (range === "month") {
-    const monthAgo = new Date(today);
-    monthAgo.setDate(monthAgo.getDate() - 30);
-    query = query.gte("appointment_date", monthAgo.toISOString().split("T")[0]);
+    query = query.gte("appointment_date", getClinicDateOffset(-30));
   } else if (range === "custom") {
     if (fromDate) query = query.gte("appointment_date", fromDate);
     if (toDate) query = query.lte("appointment_date", toDate);

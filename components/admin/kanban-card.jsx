@@ -11,7 +11,8 @@ import {
   Footprints,
   CheckCircle2,
   Loader2,
-  Receipt
+  FileText,
+  PauseCircle
 } from "lucide-react";
 
 const SERVICE_LABELS = {
@@ -30,8 +31,15 @@ function initials(name) {
     .toUpperCase();
 }
 
-export function KanbanCard({ appointment, index, staffMap = {}, onCheckIn }) {
+export function KanbanCard({ 
+  appointment, 
+  index, 
+  staffMap = {}, 
+  onCheckIn,
+  onStepAside
+}) {
   const [checkingIn, setCheckingIn] = useState(false);
+  const [steppingAside, setSteppingAside] = useState(false);
   const patient = appointment.patients || {};
   const serviceLabel = SERVICE_LABELS[appointment.service_type?.toLowerCase()] || appointment.service_type;
   const attendingStaffName = appointment.attending_staff_id ? staffMap[appointment.attending_staff_id] : null;
@@ -46,6 +54,19 @@ export function KanbanCard({ appointment, index, staffMap = {}, onCheckIn }) {
       console.error("Check-in error:", err);
     } finally {
       setCheckingIn(false);
+    }
+  };
+
+  const handleStepAsideClick = async (e) => {
+    e.stopPropagation();
+    if (!onStepAside || steppingAside) return;
+    setSteppingAside(true);
+    try {
+      await onStepAside(appointment.id);
+    } catch (err) {
+      console.error("Step aside error:", err);
+    } finally {
+      setSteppingAside(false);
     }
   };
 
@@ -91,6 +112,31 @@ export function KanbanCard({ appointment, index, staffMap = {}, onCheckIn }) {
                   <Footprints className="w-2.5 h-2.5" /> Walk-in
                 </span>
               )}
+
+              {appointment.triage_status === 'Returning' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 font-black text-[10px] uppercase tracking-wider border border-emerald-500/30 animate-pulse">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                  Returning
+                </span>
+              )}
+
+              {/* Step Aside Button for Active Lanes (including Waiting Room) */}
+              {['Waiting', 'Vital Signs', 'Consultation'].includes(appointment.triage_status || 'Waiting') && onStepAside && (
+                <button
+                  type="button"
+                  onClick={handleStepAsideClick}
+                  disabled={steppingAside}
+                  title="Patient not in room/lobby? Move to On Hold so the next patient can be seen without delay."
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 font-bold text-[10px] border border-amber-500/25 transition-all cursor-pointer"
+                >
+                  {steppingAside ? (
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                  ) : (
+                    <PauseCircle className="w-2.5 h-2.5" />
+                  )}
+                  <span>Step Aside</span>
+                </button>
+              )}
             </div>
 
             <GripVertical className="w-4 h-4 text-muted-foreground/30 group-hover:text-muted-foreground/80 shrink-0 transition-colors" />
@@ -126,19 +172,29 @@ export function KanbanCard({ appointment, index, staffMap = {}, onCheckIn }) {
               <Link
                 href={`/admin/patients/${patient.id}`}
                 onClick={(e) => e.stopPropagation()}
-                title="Open Patient Chart & Billing"
+                title="Open Clinical Patient Chart"
                 className="p-1 rounded-lg hover:bg-rose-50 hover:text-rose-600 text-muted-foreground/60 transition-colors shrink-0"
               >
-                <Receipt className="w-3.5 h-3.5" />
+                <FileText className="w-3.5 h-3.5" />
               </Link>
             )}
           </div>
 
-          {/* Badges / High Risk Notice */}
+          {/* Badges / High Risk Notice & Clinical Demographics */}
           <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
             {patient.is_high_risk && (
               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-destructive/10 text-destructive text-[10px] font-black uppercase tracking-wider border border-destructive/20">
                 <ShieldAlert className="w-3 h-3" /> High Risk
+              </span>
+            )}
+            {patient.blood_type && (
+              <span className="px-2 py-0.5 rounded-md bg-rose-500/10 text-rose-600 dark:text-rose-400 text-[10px] font-black border border-rose-500/20">
+                🩸 {patient.blood_type}
+              </span>
+            )}
+            {patient.age && (
+              <span className="px-2 py-0.5 rounded-md bg-secondary/80 text-foreground text-[10px] font-bold border border-border">
+                {patient.age} yo
               </span>
             )}
             {patient.allergies && (

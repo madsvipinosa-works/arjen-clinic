@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useTransition, useEffect } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Search,
   CalendarDays,
@@ -33,8 +34,8 @@ import { Button } from "@/components/ui/button";
 import { KanbanBoard } from "@/components/admin/kanban-board";
 import { QuickWalkInModal } from "@/components/admin/quick-walkin-modal";
 import { createClient } from "@/utils/supabase/client";
-import { checkInAppointment } from "@/app/actions";
-import { getClinicTodayDateString } from "@/lib/utils";
+import { checkInAppointment, stepAsideAppointment, returnPatientToQueue } from "@/app/actions";
+import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
 
 // ── Status config ──────────────────────────────────────────────────────────────
 const STATUS = {
@@ -106,6 +107,9 @@ export function AppointmentsManager({
   // Walk-in Intake Modal state
   const [isWalkInModalOpen, setIsWalkInModalOpen] = useState(false);
 
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
   // Date Range Filtering
   const [dateFilter, setDateFilter] = useState(currentRange || "today");
   const [customFrom, setCustomFrom] = useState(currentFrom || "");
@@ -117,6 +121,72 @@ export function AppointmentsManager({
   useEffect(() => {
     setAppointmentsList(appointments);
   }, [appointments]);
+
+  useEffect(() => {
+    if (currentRange) setDateFilter(currentRange);
+    if (currentFrom) setCustomFrom(currentFrom);
+    if (currentTo) setCustomTo(currentTo);
+  }, [currentRange, currentFrom, currentTo]);
+
+  // ── Date Preset Handler with URL Sync & Instant Fetch ───────────────────────
+  const handlePresetChange = (presetId) => {
+    setDateFilter(presetId);
+    const params = new URLSearchParams(searchParams ? searchParams.toString() : "");
+    params.set("range", presetId);
+    if (presetId !== "custom") {
+      params.delete("from");
+      params.delete("to");
+    }
+    router.push(`/admin/appointments?${params.toString()}`, { scroll: false });
+
+    if (fetchAppointments) {
+      startTransition(async () => {
+        try {
+          const res = await fetchAppointments({
+            range: presetId,
+            statusFilter: activeTab === "All" ? undefined : activeTab,
+          });
+          const list = res?.appointments || res?.data;
+          if (res?.success && list) {
+            setAppointmentsList(list);
+          }
+        } catch (err) {
+          console.error("Failed to dynamically fetch appointments:", err);
+        }
+      });
+    }
+  };
+
+  // ── Custom Date Range Handler with URL Sync & Instant Fetch ────────────────
+  const handleApplyCustomRange = (fromVal, toVal) => {
+    const f = fromVal || customFrom;
+    const t = toVal || customTo;
+    if (!f || !t) return;
+    const params = new URLSearchParams(searchParams ? searchParams.toString() : "");
+    params.set("range", "custom");
+    params.set("from", f);
+    params.set("to", t);
+    router.push(`/admin/appointments?${params.toString()}`, { scroll: false });
+
+    if (fetchAppointments) {
+      startTransition(async () => {
+        try {
+          const res = await fetchAppointments({
+            range: "custom",
+            startDate: f,
+            endDate: t,
+            statusFilter: activeTab === "All" ? undefined : activeTab,
+          });
+          const list = res?.appointments || res?.data;
+          if (res?.success && list) {
+            setAppointmentsList(list);
+          }
+        } catch (err) {
+          console.error("Failed to dynamically fetch custom date appointments:", err);
+        }
+      });
+    }
+  };
 
   // ── Supabase Real-time Subscription ─────────────────────────────────────────
   useEffect(() => {
@@ -146,11 +216,26 @@ export function AppointmentsManager({
       .on(
         "postgres_changes",
         { event: "INSERT", schema: "public", table: "appointments" },
-        (payload) => {
-          // If a new appointment is submitted in real-time, add to state if not exists
+        async (payload) => {
+          // If a new appointment is submitted in real-time, hydrate patient relation
+          let newRecord = payload.new;
+          if (newRecord?.patient_id && !newRecord.patients) {
+            try {
+              const { data: pt } = await supabase
+                .from("patients")
+                .select("id, full_name, contact_number, is_high_risk, allergies, blood_type, age")
+                .eq("id", newRecord.patient_id)
+                .single();
+              if (pt) {
+                newRecord = { ...newRecord, patients: pt };
+              }
+            } catch (err) {
+              console.warn("Failed to fetch patient for realtime appt:", err);
+            }
+          }
           setAppointmentsList((prevList) => {
-            if (prevList.some((a) => a.id === payload.new.id)) return prevList;
-            return [payload.new, ...prevList];
+            if (prevList.some((a) => a.id === newRecord.id)) return prevList;
+            return [newRecord, ...prevList];
           });
         }
       )
@@ -216,6 +301,44 @@ export function AppointmentsManager({
     }
   };
 
+  // ── Step Aside Handler (Moves absent patient to On-Hold) ───────────────────
+  const handleStepAside = async (appointmentId) => {
+    const previousList = appointmentsList;
+    setAppointmentsList((prev) =>
+      prev.map((a) => (a.id === appointmentId ? { ...a, triage_status: "Stepped Out" } : a))
+    );
+
+    try {
+      const res = await stepAsideAppointment(appointmentId);
+      if (res && res.error) {
+        console.error("Failed to step aside appointment:", res.error);
+        setAppointmentsList(previousList);
+      }
+    } catch (err) {
+      console.error("Step aside error:", err);
+      setAppointmentsList(previousList);
+    }
+  };
+
+  // ── Return to Queue Handler (Restores stepped-out patient) ─────────────────
+  const handleReturnToQueue = async (appointmentId, targetLane = "Waiting") => {
+    const previousList = appointmentsList;
+    setAppointmentsList((prev) =>
+      prev.map((a) => (a.id === appointmentId ? { ...a, triage_status: targetLane } : a))
+    );
+
+    try {
+      const res = await returnPatientToQueue(appointmentId, targetLane);
+      if (res && res.error) {
+        console.error("Failed to return patient to queue:", res.error);
+        setAppointmentsList(previousList);
+      }
+    } catch (err) {
+      console.error("Return to queue error:", err);
+      setAppointmentsList(previousList);
+    }
+  };
+
   // ── Staff Map ─────────────────────────────────────────────────────────────
   const staffMap = useMemo(() => {
     const m = {};
@@ -260,20 +383,11 @@ export function AppointmentsManager({
     if (dateFilter === "today") {
       rows = rows.filter((a) => a.appointment_date === todayStr);
     } else if (dateFilter === "yesterday") {
-      const y = new Date();
-      y.setDate(y.getDate() - 1);
-      const yStr = y.toISOString().split("T")[0];
-      rows = rows.filter((a) => a.appointment_date === yStr);
+      rows = rows.filter((a) => a.appointment_date === getClinicDateOffset(-1));
     } else if (dateFilter === "week") {
-      const w = new Date();
-      w.setDate(w.getDate() - 7);
-      const wStr = w.toISOString().split("T")[0];
-      rows = rows.filter((a) => a.appointment_date >= wStr);
+      rows = rows.filter((a) => a.appointment_date >= getClinicDateOffset(-7));
     } else if (dateFilter === "month") {
-      const m = new Date();
-      m.setDate(m.getDate() - 30);
-      const mStr = m.toISOString().split("T")[0];
-      rows = rows.filter((a) => a.appointment_date >= mStr);
+      rows = rows.filter((a) => a.appointment_date >= getClinicDateOffset(-30));
     } else if (dateFilter === "custom") {
       if (customFrom) rows = rows.filter((a) => a.appointment_date >= customFrom);
       if (customTo) rows = rows.filter((a) => a.appointment_date <= customTo);
@@ -295,26 +409,22 @@ export function AppointmentsManager({
     let rows = appointmentsList;
 
     // 1. Status Filter
-    if (activeTab !== "All") rows = rows.filter((a) => a.status === activeTab);
+    if (activeTab !== "All") {
+      rows = rows.filter((a) => {
+        const s = a.status === "Scheduled" ? "Approved" : a.status;
+        return s === activeTab;
+      });
+    }
 
     // 2. Date Range Filter
     if (dateFilter === "today") {
       rows = rows.filter((a) => a.appointment_date === todayStr);
     } else if (dateFilter === "yesterday") {
-      const y = new Date();
-      y.setDate(y.getDate() - 1);
-      const yStr = y.toISOString().split("T")[0];
-      rows = rows.filter((a) => a.appointment_date === yStr);
+      rows = rows.filter((a) => a.appointment_date === getClinicDateOffset(-1));
     } else if (dateFilter === "week") {
-      const w = new Date();
-      w.setDate(w.getDate() - 7);
-      const wStr = w.toISOString().split("T")[0];
-      rows = rows.filter((a) => a.appointment_date >= wStr);
+      rows = rows.filter((a) => a.appointment_date >= getClinicDateOffset(-7));
     } else if (dateFilter === "month") {
-      const m = new Date();
-      m.setDate(m.getDate() - 30);
-      const mStr = m.toISOString().split("T")[0];
-      rows = rows.filter((a) => a.appointment_date >= mStr);
+      rows = rows.filter((a) => a.appointment_date >= getClinicDateOffset(-30));
     } else if (dateFilter === "custom") {
       if (customFrom) rows = rows.filter((a) => a.appointment_date >= customFrom);
       if (customTo) rows = rows.filter((a) => a.appointment_date <= customTo);
@@ -353,21 +463,28 @@ export function AppointmentsManager({
   const counts = useMemo(() => {
     const c = { All: appointmentsList.length, Approved: 0, Completed: 0, Cancelled: 0, "No-Show": 0, Pending: 0, Rejected: 0 };
     appointmentsList.forEach((a) => {
-      const s = a.status || "Pending";
+      let s = a.status || "Pending";
+      if (s === "Scheduled") s = "Approved";
       if (c[s] !== undefined) c[s]++;
       else c[s] = 1;
     });
     return c;
   }, [appointmentsList]);
 
-  // ── Export to CSV Function (Compliant with Module 1 Deliverables) ───────────
+  // ── Export to CSV Function (Compliant with Module 2 Deliverables) ───────────
   const handleExportCsv = () => {
     const headers = [
       "Queue Ticket",
       "Patient Name",
+      "Age",
+      "Blood Type",
       "Contact Number",
       "Service Type",
       "Appointment Date",
+      "Time Preference",
+      "Is Walk-In",
+      "Risk Category",
+      "Allergies",
       "Triage Status",
       "Overall Status",
       "Attending Clinician",
@@ -379,9 +496,15 @@ export function AppointmentsManager({
     const csvRows = targetList.map((a) => {
       const ticket = (a.queue_ticket_number || "—").replace(/"/g, '""');
       const patientName = (a.patients?.full_name || "Unknown Patient").replace(/"/g, '""');
+      const age = (a.patients?.age ? String(a.patients.age) : "—").replace(/"/g, '""');
+      const bloodType = (a.patients?.blood_type || "—").replace(/"/g, '""');
       const contactNum = (a.patients?.contact_number || a.patients?.phone_number || "").replace(/"/g, '""');
       const service = (SERVICE_LABELS[a.service_type?.toLowerCase()] || a.service_type || "").replace(/"/g, '""');
       const apptDate = (a.appointment_date || "").replace(/"/g, '""');
+      const timePref = (a.time_preference || "—").replace(/"/g, '""');
+      const walkIn = a.is_walk_in ? "Yes (Walk-in)" : "No (Pre-booked)";
+      const risk = a.patients?.is_high_risk ? "HIGH RISK" : "Standard Risk";
+      const allergies = (a.patients?.allergies || "None").replace(/"/g, '""');
       const triage = (a.triage_status || "Waiting").replace(/"/g, '""');
       const overallStatus = (a.status || "Pending").replace(/"/g, '""');
       const clinician = (staffMap[a.attending_staff_id] || "Unassigned").replace(/"/g, '""');
@@ -390,9 +513,15 @@ export function AppointmentsManager({
       return [
         `"${ticket}"`,
         `"${patientName}"`,
+        `"${age}"`,
+        `"${bloodType}"`,
         `"${contactNum}"`,
         `"${service}"`,
         `"${apptDate}"`,
+        `"${timePref}"`,
+        `"${walkIn}"`,
+        `"${risk}"`,
+        `"${allergies}"`,
         `"${triage}"`,
         `"${overallStatus}"`,
         `"${clinician}"`,
@@ -628,7 +757,8 @@ export function AppointmentsManager({
             <button
               key={preset.id}
               type="button"
-              onClick={() => setDateFilter(preset.id)}
+              onClick={() => handlePresetChange(preset.id)}
+              disabled={isPending}
               className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                 dateFilter === preset.id
                   ? "bg-primary text-primary-foreground shadow-xs"
@@ -654,6 +784,21 @@ export function AppointmentsManager({
                 onChange={(e) => setCustomTo(e.target.value)}
                 className="px-2 py-0.5 text-xs rounded-lg border border-border bg-background text-foreground font-medium outline-none"
               />
+              <button
+                type="button"
+                onClick={() => handleApplyCustomRange()}
+                disabled={isPending}
+                className="px-3 py-1 bg-primary text-primary-foreground text-xs font-bold rounded-lg hover:opacity-90 transition-opacity cursor-pointer shadow-xs"
+              >
+                Apply Range
+              </button>
+            </div>
+          )}
+
+          {isPending && (
+            <div className="flex items-center gap-1.5 text-xs text-primary font-bold animate-pulse ml-2">
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <span>Fetching records...</span>
             </div>
           )}
         </div>
@@ -691,6 +836,12 @@ export function AppointmentsManager({
           staffMap={staffMap}
           onUpdateTriageStatus={handleUpdateTriageStatus}
           onCheckIn={handleCheckIn}
+          onStepAside={handleStepAside}
+          onReturnToQueue={handleReturnToQueue}
+          dateFilter={dateFilter}
+          onViewAll={() => handlePresetChange("all")}
+          searchQuery={search}
+          onSearchChange={setSearch}
         />
       ) : (
         <div className="space-y-6 animate-in fade-in duration-300">
@@ -786,9 +937,22 @@ export function AppointmentsManager({
 
             {/* Table */}
             {visible.length === 0 ? (
-              <div className="py-16 text-center text-muted-foreground space-y-2">
+              <div className="py-16 text-center text-muted-foreground space-y-3">
                 <CalendarDays className="w-8 h-8 mx-auto opacity-30" />
                 <p className="text-xs font-medium">No appointments found matching this date or status filter.</p>
+                {dateFilter === "today" && (
+                  <div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handlePresetChange("all")}
+                      className="text-xs font-bold rounded-xl cursor-pointer hover:bg-primary hover:text-primary-foreground transition-all"
+                    >
+                      View All Past Records
+                    </Button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="divide-y divide-border">

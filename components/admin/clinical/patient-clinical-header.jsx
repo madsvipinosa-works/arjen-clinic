@@ -514,6 +514,8 @@ export function PatientClinicalHeader({
                     name="gravida"
                     type="number"
                     min="1"
+                    max="25"
+                    maxLength={2}
                     defaultValue={modalMode === 'edit' && activeEpisode?.gravida ? activeEpisode.gravida : 1}
                     className="h-10 text-sm focus-visible:ring-rose-500 rounded-xl"
                   />
@@ -524,6 +526,8 @@ export function PatientClinicalHeader({
                     name="para"
                     type="number"
                     min="0"
+                    max="25"
+                    maxLength={2}
                     defaultValue={modalMode === 'edit' && activeEpisode?.para !== undefined ? activeEpisode.para : 0}
                     className="h-10 text-sm focus-visible:ring-rose-500 rounded-xl"
                   />

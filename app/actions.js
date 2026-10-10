@@ -5,23 +5,12 @@
 
 'use server'; // This directive tells Next.js: everything in this file is server-only.
 
-import { createClient } from "@/utils/supabase/server";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import {
-  calculateObstetricDates,
-  evaluateMaternalVitalsSafety,
-  visitLogValidationSchema,
-  prenatalLabValidationSchema
-} from "@/lib/clinical-protocols";
-import {
-  invoiceValidationSchema,
-  philhealthClaimValidationSchema,
-  calculatePhilHealthDeadline
-} from "@/lib/billing-protocols";
+import { createClient } from "@/utils/supabase/server";
 import { logAuditEvent } from "@/lib/audit-logger";
 import { isStaff, canAccessClinicalRecords, canManageSystemSettings } from "@/lib/rbac";
-import { getClinicTodayDateString } from "@/lib/utils";
+import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -318,11 +307,25 @@ export async function updateAppointmentStatus(formData) {
   const status = formData.get('status');
   const attending_staff_id = formData.get('attending_staff_id');
 
-  if (!appointment_id || !status) return;
+  if (!appointment_id || !status) return { success: false, error: 'Missing parameters' };
 
   const updatePayload = { status };
   if (attending_staff_id) {
     updatePayload.attending_staff_id = attending_staff_id;
+  }
+
+  // Bidirectional dual-state sync: completing marks as Discharged; approving resets unassigned/discharged to Waiting
+  if (status === 'Completed') {
+    updatePayload.triage_status = 'Discharged';
+  } else if (status === 'Approved') {
+    const { data: existingAppt } = await supabaseServer
+      .from('appointments')
+      .select('triage_status')
+      .eq('id', appointment_id)
+      .single();
+    if (!existingAppt?.triage_status || existingAppt.triage_status === 'Discharged') {
+      updatePayload.triage_status = 'Waiting';
+    }
   }
 
   const { error } = await supabaseServer
@@ -332,10 +335,13 @@ export async function updateAppointmentStatus(formData) {
 
   if (error) {
     console.error('[updateAppointmentStatus] error:', error.message);
+    return { success: false, error: error.message };
   }
 
   revalidatePath('/admin');
   revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
+  return { success: true };
 }
 
 /**
@@ -356,7 +362,7 @@ export async function updateTriageStatus(appointmentId, newStatus) {
     return { success: false, error: 'Appointment ID and triage status are required.' };
   }
 
-  const validStatuses = ['Waiting', 'Vital Signs', 'Consultation', 'Discharged'];
+  const validStatuses = ['Waiting', 'Vital Signs', 'Consultation', 'Discharged', 'Stepped Out', 'Returning'];
   if (!validStatuses.includes(status)) {
     return { success: false, error: `Invalid triage status: ${status}` };
   }
@@ -365,7 +371,7 @@ export async function updateTriageStatus(appointmentId, newStatus) {
   const updatePayload = { triage_status: status };
 
   // Smart Dual-State Sync: Discharging a patient marks as Completed;
-  // Moving back to an active triage lane (Waiting, Vital Signs, Consultation) marks as Approved!
+  // Moving back to an active triage lane marks as Approved!
   if (status === 'Discharged') {
     updatePayload.status = 'Completed';
   } else {
@@ -401,6 +407,200 @@ export async function updateTriageStatus(appointmentId, newStatus) {
 }
 
 /**
+ * stepAsideAppointment(appointmentId)
+ * Places a called patient on temporary hold ('Stepped Out') so the next patient can be triaged immediately without line stalling.
+ */
+export async function stepAsideAppointment(appointmentId) {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!appointmentId) return { success: false, error: 'Missing appointment ID' };
+
+  const supabaseServer = await createClient();
+
+  const { data: appt, error: fetchErr } = await supabaseServer
+    .from('appointments')
+    .select('id, queue_ticket_number, triage_status')
+    .eq('id', appointmentId)
+    .single();
+
+  if (fetchErr || !appt) {
+    return { success: false, error: fetchErr?.message || 'Appointment not found' };
+  }
+
+  const { error: updateErr } = await supabaseServer
+    .from('appointments')
+    .update({
+      triage_status: 'Stepped Out',
+      status: 'Approved',
+    })
+    .eq('id', appointmentId);
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  await logAuditEvent({
+    action: 'PATIENT_STEPPED_OUT',
+    entityType: 'appointments',
+    entityId: appointmentId,
+    details: {
+      ticket_number: appt.queue_ticket_number,
+      previous_status: appt.triage_status,
+      timestamp: new Date().toISOString()
+    }
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
+  return { success: true };
+}
+
+/**
+ * returnPatientToQueue(appointmentId, targetLane = 'Waiting')
+ * Midwife action when a stepped-out patient walks back into reception.
+ */
+export async function returnPatientToQueue(appointmentId, targetLane = 'Waiting') {
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!appointmentId) return { success: false, error: 'Missing appointment ID' };
+
+  const supabaseServer = await createClient();
+
+  const { error: updateErr } = await supabaseServer
+    .from('appointments')
+    .update({
+      triage_status: targetLane,
+      status: 'Approved'
+    })
+    .eq('id', appointmentId);
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  await logAuditEvent({
+    action: 'PATIENT_RETURNED_TO_QUEUE',
+    entityType: 'appointments',
+    entityId: appointmentId,
+    details: {
+      target_lane: targetLane,
+      timestamp: new Date().toISOString()
+    }
+  });
+
+  revalidatePath('/admin');
+  revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
+  return { success: true };
+}
+
+/**
+ * markPatientReturning(ticketNumber)
+ * Public action called from patient mobile pocket tracker when they tap "I'm on My Way Back".
+ */
+export async function markPatientReturning(ticketNumber) {
+  if (!ticketNumber) return { success: false, error: 'Ticket number is required' };
+
+  const supabaseServer = await createClient();
+  const todayStr = getClinicTodayDateString();
+
+  const { data: appt, error: findErr } = await supabaseServer
+    .from('appointments')
+    .select('id, triage_status')
+    .eq('appointment_date', todayStr)
+    .eq('queue_ticket_number', ticketNumber.trim())
+    .single();
+
+  if (findErr || !appt) {
+    return { success: false, error: 'Ticket not found for today' };
+  }
+
+  const { error: updateErr } = await supabaseServer
+    .from('appointments')
+    .update({
+      triage_status: 'Returning'
+    })
+    .eq('id', appt.id);
+
+  if (updateErr) {
+    return { success: false, error: updateErr.message };
+  }
+
+  revalidatePath('/admin/appointments');
+  revalidatePath('/queue');
+  return { success: true };
+}
+
+/**
+ * fetchTicketStatus(ticketNumber)
+ * Public, privacy-safe queue lookup for mobile pocket tracker (/queue/track?ticket=...)
+ */
+export async function fetchTicketStatus(ticketNumber) {
+  if (!ticketNumber) return { success: false, error: 'Missing ticket number' };
+
+  const supabaseServer = await createClient();
+  const todayStr = getClinicTodayDateString();
+  const normalizedTicket = ticketNumber.trim().toUpperCase();
+
+  const { data: queueList, error } = await supabaseServer
+    .from('appointments')
+    .select('id, queue_ticket_number, service_type, triage_status, checked_in_at, status')
+    .eq('appointment_date', todayStr)
+    .not('queue_ticket_number', 'is', null)
+    .order('checked_in_at', { ascending: true });
+
+  if (error) {
+    return { success: false, error: error.message };
+  }
+
+  const myAppt = (queueList || []).find(
+    (a) => (a.queue_ticket_number || '').toUpperCase() === normalizedTicket
+  );
+
+  if (!myAppt) {
+    return {
+      success: false,
+      notFound: true,
+      error: `Ticket ${normalizedTicket} was not found for today.`
+    };
+  }
+
+  const currentConsultation = (queueList || []).find(
+    (a) => a.triage_status?.toLowerCase() === 'consultation'
+  );
+  const currentVitals = (queueList || []).find(
+    (a) => a.triage_status?.toLowerCase() === 'vital signs'
+  );
+
+  const myCheckedInTime = myAppt.checked_in_at ? new Date(myAppt.checked_in_at).getTime() : 0;
+  
+  const patientsAhead = (queueList || []).filter((a) => {
+    if (a.id === myAppt.id) return false;
+    if (a.status === 'Completed' || a.triage_status === 'Discharged') return false;
+    const aTime = a.checked_in_at ? new Date(a.checked_in_at).getTime() : 0;
+    if (['vital signs', 'consultation'].includes(a.triage_status?.toLowerCase())) return true;
+    if (a.triage_status?.toLowerCase() === 'waiting' && aTime < myCheckedInTime) return true;
+    return false;
+  }).length;
+
+  const estWaitMins = Math.max(5, patientsAhead * 12);
+
+  return {
+    success: true,
+    ticket: {
+      ticketNumber: myAppt.queue_ticket_number,
+      serviceType: myAppt.service_type,
+      triageStatus: myAppt.triage_status || 'Waiting',
+      overallStatus: myAppt.status,
+      checkedInAt: myAppt.checked_in_at,
+    },
+    nowServing: currentConsultation ? currentConsultation.queue_ticket_number : (currentVitals ? currentVitals.queue_ticket_number : '—'),
+    nowInTriage: currentVitals ? currentVitals.queue_ticket_number : '—',
+    patientsAhead,
+    estimatedWaitMinutes: estWaitMins,
+  };
+}
+
+/**
  * fetchAppointments({ startDate, endDate, statusFilter, range })
  * Optimized query to retrieve appointments with historical date ranges and status filtering.
  */
@@ -409,7 +609,6 @@ export async function fetchAppointments({ startDate, endDate, statusFilter, rang
 
   const supabaseServer = await createClient();
   const todayStr = getClinicTodayDateString();
-  const today = new Date();
 
   let query = supabaseServer
     .from("appointments")
@@ -431,7 +630,9 @@ export async function fetchAppointments({ startDate, endDate, statusFilter, rang
         full_name,
         contact_number,
         is_high_risk,
-        allergies
+        allergies,
+        blood_type,
+        age
       )
     `);
 
@@ -439,20 +640,15 @@ export async function fetchAppointments({ startDate, endDate, statusFilter, rang
     query = query.eq('status', statusFilter);
   }
 
+  // Exact calendar date boundaries calculated in Asia/Manila (UTC+8)
   if (range === 'today') {
     query = query.eq('appointment_date', todayStr);
   } else if (range === 'yesterday') {
-    const y = new Date(today);
-    y.setDate(y.getDate() - 1);
-    query = query.eq('appointment_date', y.toISOString().split('T')[0]);
+    query = query.eq('appointment_date', getClinicDateOffset(-1));
   } else if (range === 'week') {
-    const w = new Date(today);
-    w.setDate(w.getDate() - 7);
-    query = query.gte('appointment_date', w.toISOString().split('T')[0]);
+    query = query.gte('appointment_date', getClinicDateOffset(-7));
   } else if (range === 'month') {
-    const m = new Date(today);
-    m.setDate(m.getDate() - 30);
-    query = query.gte('appointment_date', m.toISOString().split('T')[0]);
+    query = query.gte('appointment_date', getClinicDateOffset(-30));
   } else if (range === 'custom') {
     if (startDate) query = query.gte('appointment_date', startDate);
     if (endDate) query = query.lte('appointment_date', endDate);
@@ -469,7 +665,7 @@ export async function fetchAppointments({ startDate, endDate, statusFilter, rang
     return { success: false, error: error.message };
   }
 
-  return { success: true, appointments: data || [] };
+  return { success: true, appointments: data || [], data: data || [] };
 }
 
 /**
@@ -2269,414 +2465,6 @@ export async function updateSEOMetadata(formData) {
   revalidatePath('/');
   revalidatePath('/', 'layout');
   revalidatePath('/admin/cms');
-  return { success: true };
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// MODULE 3: BILLING, CASHIERING & PHILHEALTH CLAIMS LEDGER (INTERNAL ONLY)
-// STRICT SCOPE: Purely an internal administrative ledger and claim tracker.
-// NO external payment gateways or third-party webhooks.
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Generates sequential clinic invoice numbers (e.g. INV-2026-0001)
- */
-async function generateNextInvoiceNumber(supabaseServer) {
-  const year = new Date().getFullYear();
-  const prefix = `INV-${year}-`;
-
-  const { data } = await supabaseServer
-    .from('invoices')
-    .select('invoice_number')
-    .ilike('invoice_number', `${prefix}%`)
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  let nextNum = 1;
-  if (data && data.length > 0 && data[0].invoice_number) {
-    const match = data[0].invoice_number.match(/INV-\d{4}-(\d+)/);
-    if (match) nextNum = parseInt(match[1], 10) + 1;
-  }
-  return `${prefix}${String(nextNum).padStart(4, '0')}`;
-}
-
-/**
- * Generates sequential PhilHealth claim series numbers (e.g. PH-2026-0001)
- */
-async function generateNextClaimSeriesNumber(supabaseServer) {
-  const year = new Date().getFullYear();
-  const prefix = `PH-${year}-`;
-
-  const { data } = await supabaseServer
-    .from('philhealth_claims')
-    .select('claim_series_number')
-    .ilike('claim_series_number', `${prefix}%`)
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  let nextNum = 1;
-  if (data && data.length > 0 && data[0].claim_series_number) {
-    const match = data[0].claim_series_number.match(/PH-\d{4}-(\d+)/);
-    if (match) nextNum = parseInt(match[1], 10) + 1;
-  }
-  return `${prefix}${String(nextNum).padStart(4, '0')}`;
-}
-
-/**
- * createInvoice(payload)
- * Records an internal clinic invoice and itemized charges.
- * Supports both FormData and direct JS object.
- */
-export async function createInvoice(payload) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-
-  // Normalize payload
-  let data = {};
-  if (payload instanceof FormData) {
-    const rawItems = payload.get('items');
-    let items = [];
-    try {
-      items = typeof rawItems === 'string' ? JSON.parse(rawItems) : [];
-    } catch {
-      items = [];
-    }
-
-    data = {
-      patient_id: payload.get('patient_id'),
-      appointment_id: payload.get('appointment_id') || null,
-      maternal_episode_id: payload.get('maternal_episode_id') || null,
-      subtotal: parseFloat(payload.get('subtotal')) || 0,
-      philhealth_discount: parseFloat(payload.get('philhealth_discount')) || 0,
-      senior_pwd_discount: parseFloat(payload.get('senior_pwd_discount')) || 0,
-      amount_due: parseFloat(payload.get('amount_due')) || 0,
-      amount_paid: parseFloat(payload.get('amount_paid')) || 0,
-      change_given: parseFloat(payload.get('change_given')) || 0,
-      payment_method: payload.get('payment_method') || 'Cash',
-      payment_reference: payload.get('payment_reference') || null,
-      payment_status: payload.get('payment_status') || 'Unpaid',
-      official_receipt_number: payload.get('official_receipt_number') || null,
-      notes: payload.get('notes') || null,
-      items,
-    };
-  } else {
-    data = { ...payload };
-  }
-
-  // Runtime Zod Validation
-  const validation = invoiceValidationSchema.safeParse(data);
-  if (!validation.success) {
-    const errorMsg = validation.error.issues.map(i => i.message).join(', ');
-    return { success: false, error: `Validation Error: ${errorMsg}` };
-  }
-
-  const validData = validation.data;
-  const invoiceNumber = await generateNextInvoiceNumber(supabaseServer);
-
-  // Reconcile payment status
-  let finalStatus = validData.payment_status;
-  if (validData.amount_due <= 0) {
-    finalStatus = 'Paid';
-  } else if (validData.amount_paid >= validData.amount_due) {
-    finalStatus = 'Paid';
-  } else if (validData.amount_paid > 0) {
-    finalStatus = 'Partially Paid';
-  }
-
-  const { data: createdInvoice, error: invError } = await supabaseServer
-    .from('invoices')
-    .insert({
-      invoice_number: invoiceNumber,
-      patient_id: validData.patient_id,
-      appointment_id: validData.appointment_id,
-      maternal_episode_id: validData.maternal_episode_id,
-      subtotal: validData.subtotal,
-      philhealth_discount: validData.philhealth_discount,
-      senior_pwd_discount: validData.senior_pwd_discount,
-      amount_due: validData.amount_due,
-      amount_paid: validData.amount_paid,
-      change_given: validData.change_given,
-      payment_method: validData.payment_method,
-      payment_reference: validData.payment_reference,
-      payment_status: finalStatus,
-      official_receipt_number: validData.official_receipt_number,
-      cashier_id: user?.id || null,
-      notes: validData.notes,
-    })
-    .select('id, invoice_number')
-    .single();
-
-  if (invError) {
-    console.error('[createInvoice] Supabase insert error:', invError.message);
-    return { success: false, error: invError.message };
-  }
-
-  // Insert Line Items
-  const lineItems = validData.items.map(item => ({
-    invoice_id: createdInvoice.id,
-    description: item.description,
-    item_type: item.item_type || 'Service',
-    quantity: item.quantity,
-    unit_price: item.unit_price,
-    total_price: item.total_price,
-  }));
-
-  const { error: itemsError } = await supabaseServer
-    .from('invoice_items')
-    .insert(lineItems);
-
-  if (itemsError) {
-    console.error('[createInvoice] Items insert error:', itemsError.message);
-  }
-
-  // Path Revalidation
-  revalidatePath('/admin/billing');
-  revalidatePath(`/admin/patients/${validData.patient_id}`);
-  if (validData.appointment_id) {
-    revalidatePath('/admin/appointments');
-  }
-
-  return {
-    success: true,
-    invoiceId: createdInvoice.id,
-    invoiceNumber: createdInvoice.invoice_number
-  };
-}
-
-/**
- * recordCounterPayment(formData)
- * Records in-clinic counter payment (Cash, manual GCash ref, or Bank transfer) against an invoice.
- */
-export async function recordCounterPayment(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-
-  const invoice_id = formData.get('invoice_id');
-  const amount_tendered = parseFloat(formData.get('amount_tendered')) || 0;
-  const payment_method = formData.get('payment_method') || 'Cash';
-  const payment_reference = formData.get('payment_reference') || null;
-  const official_receipt_number = formData.get('official_receipt_number') || null;
-  const notes = formData.get('notes') || null;
-
-  if (!invoice_id) return { success: false, error: 'Missing Invoice ID' };
-  if (amount_tendered <= 0) return { success: false, error: 'Payment amount must be greater than zero' };
-
-  // Fetch current invoice
-  const { data: invoice, error: fetchErr } = await supabaseServer
-    .from('invoices')
-    .select('*')
-    .eq('id', invoice_id)
-    .single();
-
-  if (fetchErr || !invoice) {
-    return { success: false, error: fetchErr?.message || 'Invoice not found' };
-  }
-
-  const currentPaid = parseFloat(invoice.amount_paid) || 0;
-  const amountDue = parseFloat(invoice.amount_due) || 0;
-  const newTotalPaid = currentPaid + amount_tendered;
-
-  let newStatus = 'Partially Paid';
-  let changeGiven = 0;
-
-  if (newTotalPaid >= amountDue) {
-    newStatus = 'Paid';
-    changeGiven = newTotalPaid - amountDue;
-  }
-
-  const { error: updateErr } = await supabaseServer
-    .from('invoices')
-    .update({
-      amount_paid: newTotalPaid,
-      change_given: changeGiven,
-      payment_method,
-      payment_reference: payment_reference || invoice.payment_reference,
-      official_receipt_number: official_receipt_number || invoice.official_receipt_number,
-      payment_status: newStatus,
-      cashier_id: user?.id || invoice.cashier_id,
-      notes: notes ? (invoice.notes ? `${invoice.notes}\n[Payment note]: ${notes}` : notes) : invoice.notes,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', invoice_id);
-
-  if (updateErr) {
-    return { success: false, error: updateErr.message };
-  }
-
-  revalidatePath('/admin/billing');
-  revalidatePath(`/admin/patients/${invoice.patient_id}`);
-  return { success: true, newStatus, changeGiven };
-}
-
-/**
- * cancelInvoice(formData)
- * Voids an internal invoice record.
- */
-export async function cancelInvoice(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-
-  const supabaseServer = await createClient();
-  const invoice_id = formData.get('invoice_id');
-  const reason = formData.get('reason') || 'Cancelled by staff';
-
-  if (!invoice_id) return { success: false, error: 'Missing invoice ID' };
-
-  const { error } = await supabaseServer
-    .from('invoices')
-    .update({
-      payment_status: 'Cancelled',
-      notes: `[Voided]: ${reason}`,
-      updated_at: new Date().toISOString()
-    })
-    .eq('id', invoice_id);
-
-  if (error) return { success: false, error: error.message };
-
-  revalidatePath('/admin/billing');
-  return { success: true };
-}
-
-/**
- * createPhilHealthClaim(formData)
- * Logs a new PhilHealth MCP/NCP claim and calculates the statutory 60-day deadline.
- */
-export async function createPhilHealthClaim(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-
-  const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
-
-  const patient_id = formData.get('patient_id');
-  const maternal_episode_id = formData.get('maternal_episode_id') || null;
-  const invoice_id = formData.get('invoice_id') || null;
-  const package_type = formData.get('package_type') || 'MCP';
-  const claim_amount = parseFloat(formData.get('claim_amount')) || 6500;
-  const philhealth_member_id = formData.get('philhealth_member_id') || null;
-  const member_category = formData.get('member_category') || 'Formal Economy';
-  const patient_relationship = formData.get('patient_relationship') || 'Member';
-  const date_of_delivery = formData.get('date_of_delivery');
-  const notes = formData.get('notes') || null;
-
-  if (!patient_id || !date_of_delivery) {
-    return { success: false, error: 'Patient ID and Date of Delivery are required' };
-  }
-
-  // Statutory 60-Day Deadline Calculation
-  const deadlineMetrics = calculatePhilHealthDeadline(date_of_delivery);
-  if (!deadlineMetrics.isValid) {
-    return { success: false, error: 'Invalid delivery date format' };
-  }
-
-  // Runtime Zod Validation
-  const validation = philhealthClaimValidationSchema.safeParse({
-    patient_id,
-    maternal_episode_id,
-    invoice_id,
-    package_type,
-    claim_amount,
-    philhealth_member_id,
-    member_category,
-    patient_relationship,
-    date_of_delivery,
-    notes,
-  });
-
-  if (!validation.success) {
-    const errorMsg = validation.error.issues.map(i => i.message).join(', ');
-    return { success: false, error: `Validation Error: ${errorMsg}` };
-  }
-
-  const claimSeries = await generateNextClaimSeriesNumber(supabaseServer);
-
-  const { data: createdClaim, error } = await supabaseServer
-    .from('philhealth_claims')
-    .insert({
-      claim_series_number: claimSeries,
-      patient_id,
-      maternal_episode_id,
-      invoice_id,
-      package_type,
-      claim_amount,
-      philhealth_member_id,
-      member_category,
-      patient_relationship,
-      status: 'Draft',
-      date_of_delivery,
-      filing_deadline: deadlineMetrics.filingDeadline,
-      notes,
-      created_by: user?.id,
-    })
-    .select('id, claim_series_number')
-    .single();
-
-  if (error) {
-    console.error('[createPhilHealthClaim] error:', error.message);
-    return { success: false, error: error.message };
-  }
-
-  revalidatePath('/admin/philhealth');
-  revalidatePath('/admin/billing');
-  revalidatePath(`/admin/patients/${patient_id}`);
-
-  return { success: true, claimId: createdClaim.id, claimSeriesNumber: createdClaim.claim_series_number };
-}
-
-/**
- * updatePhilHealthClaimStatus(formData)
- * Advances claim through PhilHealth statutory lifecycle stages.
- */
-export async function updatePhilHealthClaimStatus(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
-
-  const supabaseServer = await createClient();
-  const id = formData.get('id');
-  const status = formData.get('status');
-  const transmitted_date = formData.get('transmitted_date') || null;
-  const reimbursed_date = formData.get('reimbursed_date') || null;
-  const check_or_reference_number = formData.get('check_or_reference_number') || null;
-  const denial_reason = formData.get('denial_reason') || null;
-  const notes = formData.get('notes') || null;
-
-  if (!id || !status) {
-    return { success: false, error: 'Missing claim ID or status' };
-  }
-
-  const updatePayload = {
-    status,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (transmitted_date) updatePayload.transmitted_date = transmitted_date;
-  if (reimbursed_date) updatePayload.reimbursed_date = reimbursed_date;
-  if (check_or_reference_number) updatePayload.check_or_reference_number = check_or_reference_number;
-  if (denial_reason) updatePayload.denial_reason = denial_reason;
-  if (notes) updatePayload.notes = notes;
-
-  // Auto-set timestamps if advancing status without explicit date
-  const today = new Date().toISOString().split('T')[0];
-  if (status === 'Transmitted' && !updatePayload.transmitted_date) {
-    updatePayload.transmitted_date = today;
-  }
-  if (status === 'Approved_Reimbursed' && !updatePayload.reimbursed_date) {
-    updatePayload.reimbursed_date = today;
-  }
-
-  const { error } = await supabaseServer
-    .from('philhealth_claims')
-    .update(updatePayload)
-    .eq('id', id);
-
-  if (error) {
-    console.error('[updatePhilHealthClaimStatus] error:', error.message);
-    return { success: false, error: error.message };
-  }
-
-  revalidatePath('/admin/philhealth');
-  revalidatePath('/admin/billing');
   return { success: true };
 }
 

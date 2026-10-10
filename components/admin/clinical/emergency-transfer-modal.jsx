@@ -186,6 +186,7 @@ export function EmergencyTransferModal({
             <div className="space-y-1.5">
               <Label className="text-xs font-bold text-gray-700">Emergency Kin Contact</Label>
               <Input
+                maxLength={60}
                 defaultValue={patient?.husband_partner_name ? `${patient.husband_partner_name} (${patient.contact_number || 'No phone'})` : patient?.contact_number || ''}
                 className="h-10 text-xs rounded-xl focus-visible:ring-rose-500 font-medium"
               />

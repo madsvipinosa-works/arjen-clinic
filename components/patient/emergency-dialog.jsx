@@ -37,7 +37,7 @@ export function EmergencyContactModal({ trigger, open: controlledOpen, onOpenCha
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent className="sm:max-w-lg bg-card border-border rounded-3xl p-6 sm:p-8 shadow-2xl">
         <DialogHeader className="text-left space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-destructive/10 text-destructive flex items-center justify-center shadow-sm">

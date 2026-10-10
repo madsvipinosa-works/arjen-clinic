@@ -57,7 +57,7 @@ export default function NewPatientPage() {
 
             <div className="space-y-2">
               <Label htmlFor="age" className="font-bold text-gray-700">Age</Label>
-              <Input id="age" name="age" type="number" placeholder="e.g. 27" min="10" max="60" className="h-11 focus-visible:ring-emerald-500" />
+              <Input id="age" name="age" type="number" placeholder="e.g. 27" min="10" max="100" maxLength={3} className="h-11 focus-visible:ring-emerald-500" />
             </div>
 
             <div className="space-y-2">
@@ -74,12 +74,12 @@ export default function NewPatientPage() {
 
             <div className="space-y-2">
               <Label htmlFor="husband_partner_name" className="font-bold text-gray-700">Husband / Partner Name</Label>
-              <Input id="husband_partner_name" name="husband_partner_name" placeholder="e.g. Juan Santos" className="h-11 focus-visible:ring-emerald-500" />
+              <Input id="husband_partner_name" name="husband_partner_name" maxLength={100} placeholder="e.g. Juan Santos" className="h-11 focus-visible:ring-emerald-500" />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="contact_number" className="font-bold text-gray-700">Contact Number</Label>
-              <Input id="contact_number" name="contact_number" placeholder="e.g. 09171234567" className="h-11 focus-visible:ring-emerald-500" />
+              <Label htmlFor="contact_number" className="font-bold text-gray-700">Contact Number (11 digits)</Label>
+              <Input id="contact_number" name="contact_number" type="tel" maxLength={11} placeholder="e.g. 09171234567" className="h-11 focus-visible:ring-emerald-500" pattern="[0-9]{10,11}" title="Please enter a valid 11-digit mobile number (e.g. 09171234567)" />
             </div>
 
             <div className="space-y-2">

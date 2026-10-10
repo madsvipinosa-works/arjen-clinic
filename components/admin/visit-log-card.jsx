@@ -49,11 +49,11 @@ export function VisitLogCard({ log, patientId, staffName }) {
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">AOG by UTZ</label>
-            <Input name="aog_by_utz" defaultValue={log.aog_by_utz} placeholder="e.g. 28 3/7" className="h-9 focus-visible:ring-emerald-500" />
+            <Input name="aog_by_utz" maxLength={7} defaultValue={log.aog_by_utz} placeholder="e.g. 28 3/7" className="h-9 focus-visible:ring-emerald-500" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">BP</label>
-            <Input name="bp" defaultValue={log.bp} placeholder="120/80" className="h-9 focus-visible:ring-emerald-500" required />
+            <Input name="bp" maxLength={7} defaultValue={log.bp} placeholder="120/80" onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9/]/g, '').slice(0, 7); }} className="h-9 focus-visible:ring-emerald-500" required />
           </div>
         </div>
 
@@ -61,27 +61,27 @@ export function VisitLogCard({ log, patientId, staffName }) {
         <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Temp</label>
-            <Input name="temp" defaultValue={log.temp} placeholder="36.5°C" className="h-9 focus-visible:ring-emerald-500" />
+            <Input name="temp" maxLength={5} defaultValue={log.temp} placeholder="36.5" onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9.]/g, '').slice(0, 5); }} className="h-9 focus-visible:ring-emerald-500" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">PR</label>
-            <Input name="pr" defaultValue={log.pr} placeholder="80" className="h-9 focus-visible:ring-emerald-500" />
+            <Input name="pr" maxLength={3} defaultValue={log.pr} placeholder="80" onInput={(e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 3); }} className="h-9 focus-visible:ring-emerald-500" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">RR</label>
-            <Input name="rr" defaultValue={log.rr} placeholder="18" className="h-9 focus-visible:ring-emerald-500" />
+            <Input name="rr" maxLength={2} defaultValue={log.rr} placeholder="18" onInput={(e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 2); }} className="h-9 focus-visible:ring-emerald-500" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">Wt (kg)</label>
-            <Input name="weight" defaultValue={log.weight} placeholder="62" className="h-9 focus-visible:ring-emerald-500" required />
+            <Input name="weight" maxLength={5} defaultValue={log.weight} placeholder="62" onInput={(e) => { e.target.value = e.target.value.replace(/[^0-9.]/g, '').slice(0, 5); }} className="h-9 focus-visible:ring-emerald-500" required />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">FH (cm)</label>
-            <Input name="fh" defaultValue={log.fh} placeholder="28" className="h-9 focus-visible:ring-emerald-500" />
+            <Input name="fh" maxLength={2} defaultValue={log.fh} placeholder="28" onInput={(e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 2); }} className="h-9 focus-visible:ring-emerald-500" />
           </div>
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase tracking-wider">FHT</label>
-            <Input name="fht" defaultValue={log.fht} placeholder="140" className="h-9 focus-visible:ring-emerald-500" />
+            <Input name="fht" maxLength={3} defaultValue={log.fht} placeholder="140" onInput={(e) => { e.target.value = e.target.value.replace(/\D/g, '').slice(0, 3); }} className="h-9 focus-visible:ring-emerald-500" />
           </div>
         </div>
 

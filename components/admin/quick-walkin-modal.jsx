@@ -16,8 +16,13 @@ import {
   ChevronDown,
   ShieldAlert,
   Loader2,
-  Ticket
+  Ticket,
+  Printer,
+  Copy,
+  Check,
+  Smartphone
 } from "lucide-react";
+import QRCode from "qrcode";
 import { createWalkInAppointment, searchPatientsForReception } from "@/app/actions";
 
 const SERVICES = [
@@ -61,6 +66,103 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
   // Feedback states
   const [errorMsg, setErrorMsg] = useState("");
   const [successData, setSuccessData] = useState(null);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  // Generate QR Code for Mobile Pocket Queue Tracker
+  useEffect(() => {
+    if (successData?.ticketNumber && typeof window !== "undefined") {
+      const trackUrl = `${window.location.origin}/queue/track?ticket=${encodeURIComponent(successData.ticketNumber)}`;
+      QRCode.toDataURL(trackUrl, {
+        margin: 1,
+        width: 180,
+        color: { dark: "#0f172a", light: "#ffffff" },
+      })
+        .then((url) => setQrDataUrl(url))
+        .catch((err) => console.error("QR Code error:", err));
+    }
+  }, [successData]);
+
+  // Handle Escape key modal dismissal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        handleClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
+  const handlePrintSlip = () => {
+    if (!successData || typeof window === "undefined") return;
+    const printWindow = window.open("", "_blank", "width=380,height=560");
+    if (!printWindow) return;
+
+    const html = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Queue Ticket - ${successData.ticketNumber}</title>
+          <style>
+            @media print {
+              @page { margin: 0; size: auto; }
+              body { margin: 4px; max-width: 72mm; }
+            }
+            body {
+              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+              text-align: center;
+              color: #000;
+              padding: 6px;
+              max-width: 72mm;
+              margin: 0 auto;
+            }
+            .clinic-title { font-size: 15px; font-weight: 900; text-transform: uppercase; margin-bottom: 2px; }
+            .clinic-sub { font-size: 11px; color: #333; margin-bottom: 10px; }
+            .ticket-box { border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 10px 0; margin: 8px 0; }
+            .ticket-num { font-size: 40px; font-weight: 900; font-family: monospace; letter-spacing: -1px; }
+            .patient-name { font-size: 13px; font-weight: 700; margin-top: 4px; word-break: break-word; }
+            .service { font-size: 11px; color: #222; margin-top: 2px; }
+            .qr-img { width: 120px; height: 120px; margin: 8px auto; display: block; }
+            .hint { font-size: 10px; color: #333; line-height: 1.25; max-width: 200px; margin: 0 auto; }
+            .date-time { font-size: 9px; color: #666; margin-top: 8px; }
+          </style>
+        </head>
+        <body>
+          <div class="clinic-title">AR-JEN Maternity Clinic</div>
+          <div class="clinic-sub">Community Lying-In & Triage</div>
+          
+          <div class="ticket-box">
+            <div style="font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Queue Ticket</div>
+            <div class="ticket-num">${successData.ticketNumber}</div>
+            <div class="patient-name">${successData.patientName}</div>
+            <div class="service">${successData.serviceLabel}</div>
+          </div>
+
+          ${qrDataUrl ? `<img src="${qrDataUrl}" class="qr-img" alt="QR Code" />` : ""}
+
+          <div class="hint">
+            <strong>Need to step out?</strong> Scan with your phone camera to track your queue turn live. Free & no app required.
+          </div>
+
+          <div class="date-time">
+            ${new Date().toLocaleDateString("en-PH", { month: "short", day: "numeric", year: "numeric" })} • ${new Date().toLocaleTimeString("en-PH", { hour: "2-digit", minute: "2-digit", hour12: true })}
+          </div>
+
+          <script>
+            window.onload = function() {
+              window.print();
+              setTimeout(function() { window.close(); }, 500);
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
 
   // Debounced patient search
   useEffect(() => {
@@ -102,6 +204,8 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
     setTemperature("");
     setErrorMsg("");
     setSuccessData(null);
+    setQrDataUrl("");
+    setCopiedLink(false);
   };
 
   const handleClose = () => {
@@ -162,7 +266,10 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200"
+      onClick={handleClose}
+    >
       <div 
         className="relative w-full max-w-2xl bg-card border border-border/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
@@ -248,6 +355,53 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
                   {successData.serviceLabel} • Checked into <span className="font-bold text-foreground">Waiting Room</span>
                 </p>
               </div>
+
+              {/* QR Code Pocket Tracker Card */}
+              {qrDataUrl && (
+                <div className="bg-muted/40 border border-border rounded-2xl p-4 flex flex-col sm:flex-row items-center gap-4 text-left max-w-md mx-auto shadow-xs">
+                  <img
+                    src={qrDataUrl}
+                    alt="Queue Ticket QR"
+                    className="w-28 h-28 rounded-xl border border-border bg-white p-1.5 shrink-0 shadow-2xs"
+                  />
+                  <div className="space-y-1.5 text-center sm:text-left flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5 text-primary font-bold text-xs uppercase tracking-wider justify-center sm:justify-start">
+                      <Smartphone className="w-3.5 h-3.5" />
+                      <span>Pocket Queue Tracker</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground leading-relaxed">
+                      Patient can scan this code to track their position and step out of the clinic safely.
+                    </p>
+                    <div className="flex items-center gap-2 pt-1 justify-center sm:justify-start">
+                      <button
+                        type="button"
+                        onClick={handlePrintSlip}
+                        className="px-3 py-1.5 rounded-lg bg-card border border-border text-foreground hover:bg-muted text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                        title="Print 80mm clinic ticket slip"
+                      >
+                        <Printer className="w-3.5 h-3.5 text-primary" />
+                        <span>Print Slip</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== "undefined") {
+                            const trackUrl = `${window.location.origin}/queue/track?ticket=${encodeURIComponent(successData.ticketNumber)}`;
+                            navigator.clipboard.writeText(trackUrl);
+                            setCopiedLink(true);
+                            setTimeout(() => setCopiedLink(false), 2000);
+                          }
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-card border border-border text-foreground hover:bg-muted text-xs font-bold flex items-center gap-1.5 shadow-2xs transition-all cursor-pointer"
+                        title="Copy tracker link to clipboard"
+                      >
+                        {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5 text-muted-foreground" />}
+                        <span>{copiedLink ? "Copied" : "Copy Link"}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="p-4 rounded-2xl bg-muted/40 border border-border text-xs text-muted-foreground max-w-md mx-auto text-left space-y-1.5">
                 <div className="flex justify-between">
@@ -419,13 +573,14 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
 
                     <div className="space-y-1">
                       <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
-                        Contact / Mobile #
+                        Contact / Mobile # (11 digits)
                       </label>
                       <input
-                        type="text"
+                        type="tel"
+                        maxLength={11}
                         value={contactNumber}
-                        onChange={(e) => setContactNumber(e.target.value)}
-                        placeholder="e.g. 0917 123 4567"
+                        onChange={(e) => setContactNumber(e.target.value.replace(/\D/g, "").slice(0, 11))}
+                        placeholder="e.g. 09171234567"
                         className="w-full px-3 py-2 rounded-xl border border-border bg-card text-foreground text-xs font-medium focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none"
                       />
                     </div>
@@ -441,7 +596,7 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
                         min="1"
                         max="120"
                         value={age}
-                        onChange={(e) => setAge(e.target.value)}
+                        onChange={(e) => setAge(e.target.value.slice(0, 3))}
                         placeholder="e.g. 26"
                         className="w-full px-3 py-2 rounded-xl border border-border bg-card text-foreground text-xs font-medium focus:ring-2 focus:ring-primary/40 focus:border-primary outline-none"
                       />
@@ -559,8 +714,9 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
                       <label className="text-[10px] font-bold text-foreground uppercase">BP (mmHg)</label>
                       <input
                         type="text"
+                        maxLength={7}
                         value={bp}
-                        onChange={(e) => setBp(e.target.value)}
+                        onChange={(e) => setBp(e.target.value.replace(/[^0-9/]/g, "").slice(0, 7))}
                         placeholder="e.g. 120/80"
                         className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs font-mono font-medium outline-none focus:ring-2 focus:ring-primary/30"
                       />
@@ -569,8 +725,9 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
                       <label className="text-[10px] font-bold text-foreground uppercase">Weight (kg)</label>
                       <input
                         type="text"
+                        maxLength={5}
                         value={weight}
-                        onChange={(e) => setWeight(e.target.value)}
+                        onChange={(e) => setWeight(e.target.value.replace(/[^0-9.]/g, "").slice(0, 5))}
                         placeholder="e.g. 58.5"
                         className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs font-mono font-medium outline-none focus:ring-2 focus:ring-primary/30"
                       />
@@ -579,8 +736,9 @@ export function QuickWalkInModal({ isOpen, onClose, staffUsers = [], onAppointme
                       <label className="text-[10px] font-bold text-foreground uppercase">Temp (°C)</label>
                       <input
                         type="text"
+                        maxLength={4}
                         value={temperature}
-                        onChange={(e) => setTemperature(e.target.value)}
+                        onChange={(e) => setTemperature(e.target.value.replace(/[^0-9.]/g, "").slice(0, 4))}
                         placeholder="e.g. 36.6"
                         className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs font-mono font-medium outline-none focus:ring-2 focus:ring-primary/30"
                       />

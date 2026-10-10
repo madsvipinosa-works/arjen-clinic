@@ -294,6 +294,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
                     <div className="ml-7">
                       <Label className="text-xs font-bold text-gray-500">PhilHealth Number</Label>
                       <Input name="philhealth_number" defaultValue={birthPlan?.philhealth_number}
+                        maxLength={14}
                         placeholder="00-000000000-0"
                         className="mt-1 max-w-xs h-9 focus-visible:ring-rose-500 text-sm" />
                     </div>

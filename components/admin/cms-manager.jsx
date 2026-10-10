@@ -858,6 +858,7 @@ export function CMSManager({ initialSettings }) {
                       <Input
                         id="clinic_contact"
                         name="clinic_contact"
+                        maxLength={30}
                         defaultValue={settings?.clinic_contact || ""}
                         className="rounded-xl"
                       />

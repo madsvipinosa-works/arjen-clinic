@@ -288,18 +288,20 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
           <LogoMark dark={scrolled} logoSrc={settings?.navbar_logo} />
 
           <Sheet>
-            <SheetTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={cn(
-                  "rounded-xl",
-                  scrolled ? "text-slate-700 hover:bg-primary/5" : "text-white hover:bg-white/15"
-                )}
-              >
-                <Menu className="h-5 w-5" />
-              </Button>
-            </SheetTrigger>
+            <SheetTrigger
+              render={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    "rounded-xl",
+                    scrolled ? "text-slate-700 hover:bg-primary/5" : "text-white hover:bg-white/15"
+                  )}
+                >
+                  <Menu className="h-5 w-5" />
+                </Button>
+              }
+            />
 
             <SheetContent side="right" className="w-[300px] bg-white p-0 sm:w-[340px]">
               {/* Sheet header */}
@@ -344,12 +346,12 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
                           <p className="truncate text-xs text-muted-foreground">{user.email}</p>
                         </div>
                       </div>
-                      <a href="/patient">
-                        <Button variant="outline" className="w-full rounded-full border-primary/30 text-primary hover:bg-primary/5">
+                      <Button asChild variant="outline" className="w-full rounded-full border-primary/30 text-primary hover:bg-primary/5">
+                        <a href="/patient">
                           <UserCircle className="mr-2 h-4 w-4" />
                           My Dashboard
-                        </Button>
-                      </a>
+                        </a>
+                      </Button>
                       <form action={logoutAction}>
                         <Button className="w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90">
                           <LogOut className="mr-2 h-4 w-4" />

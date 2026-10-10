@@ -197,6 +197,8 @@ export default async function ScheduleSettingsPage() {
                   type="number"
                   defaultValue={10}
                   min={1}
+                  max={100}
+                  maxLength={3}
                   className="focus-visible:ring-rose-500 h-10"
                   required
                 />

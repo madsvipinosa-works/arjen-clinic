@@ -151,7 +151,7 @@ export function PatientProfileTab({ patient, consultationMessages = [] }) {
         </div>
         <div className="space-y-2">
           <Label className="font-bold">Age</Label>
-          <Input name="age" type="number" defaultValue={patient.age} min="10" max="60" className="focus-visible:ring-emerald-500" />
+          <Input name="age" type="number" defaultValue={patient.age} min="10" max="100" maxLength={3} className="focus-visible:ring-emerald-500" />
         </div>
         <div className="space-y-2">
           <Label className="font-bold">Civil Status</Label>
@@ -162,11 +162,11 @@ export function PatientProfileTab({ patient, consultationMessages = [] }) {
         </div>
         <div className="space-y-2">
           <Label className="font-bold">Husband / Partner Name</Label>
-          <Input name="husband_partner_name" defaultValue={patient.husband_partner_name} className="focus-visible:ring-emerald-500" />
+          <Input name="husband_partner_name" maxLength={100} defaultValue={patient.husband_partner_name} className="focus-visible:ring-emerald-500" />
         </div>
         <div className="space-y-2">
-          <Label className="font-bold">Contact Number</Label>
-          <Input name="contact_number" defaultValue={patient.contact_number} className="focus-visible:ring-emerald-500" />
+          <Label className="font-bold">Contact Number (11 digits)</Label>
+          <Input name="contact_number" type="tel" maxLength={11} defaultValue={patient.contact_number} placeholder="09XXXXXXXXX" className="focus-visible:ring-emerald-500" pattern="[0-9]{10,11}" title="Please enter a valid 11-digit mobile number" />
         </div>
         <div className="space-y-2">
           <Label className="font-bold">Blood Type</Label>

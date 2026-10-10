@@ -422,8 +422,11 @@ export function PrenatalLabsSection({
                       name="hemoglobin" 
                       type="number" 
                       step="0.1" 
+                      min="1"
+                      max="30"
+                      maxLength={4}
                       value={hb}
-                      onChange={(e) => setHb(e.target.value)}
+                      onChange={(e) => setHb(e.target.value.slice(0, 4))}
                       placeholder="e.g. 11.5" 
                       className="h-9" 
                     />
@@ -434,8 +437,11 @@ export function PrenatalLabsSection({
                       name="hematocrit" 
                       type="number" 
                       step="0.1" 
+                      min="5"
+                      max="75"
+                      maxLength={4}
                       value={hct}
-                      onChange={(e) => setHct(e.target.value)}
+                      onChange={(e) => setHct(e.target.value.slice(0, 4))}
                       placeholder="e.g. 35.0" 
                       className="h-9" 
                     />
@@ -573,8 +579,11 @@ export function PrenatalLabsSection({
                       name="ogtt_fasting" 
                       type="number" 
                       step="0.1" 
+                      min="20"
+                      max="600"
+                      maxLength={5}
                       value={fbs}
-                      onChange={(e) => setFbs(e.target.value)}
+                      onChange={(e) => setFbs(e.target.value.slice(0, 5))}
                       placeholder="Cutoff ≥ 92" 
                       className="h-9 text-xs" 
                     />
@@ -585,8 +594,11 @@ export function PrenatalLabsSection({
                       name="ogtt_1hr" 
                       type="number" 
                       step="0.1" 
+                      min="20"
+                      max="600"
+                      maxLength={5}
                       value={ogtt1}
-                      onChange={(e) => setOgtt1(e.target.value)}
+                      onChange={(e) => setOgtt1(e.target.value.slice(0, 5))}
                       placeholder="Cutoff ≥ 180" 
                       className="h-9 text-xs" 
                     />
@@ -597,8 +609,11 @@ export function PrenatalLabsSection({
                       name="ogtt_2hr" 
                       type="number" 
                       step="0.1" 
+                      min="20"
+                      max="600"
+                      maxLength={5}
                       value={ogtt2}
-                      onChange={(e) => setOgtt2(e.target.value)}
+                      onChange={(e) => setOgtt2(e.target.value.slice(0, 5))}
                       placeholder="Cutoff ≥ 153" 
                       className="h-9 text-xs" 
                     />

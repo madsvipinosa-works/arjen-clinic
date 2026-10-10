@@ -73,6 +73,7 @@ export default async function SettingsPage() {
                 <Input 
                   id="clinic_contact" 
                   name="clinic_contact" 
+                  maxLength={30}
                   defaultValue={settings?.clinic_contact} 
                   className="h-12 rounded-2xl border-gray-200 focus:ring-rose-500 font-bold text-gray-800"
                 />

@@ -14,15 +14,39 @@ function Sheet({
 }
 
 function SheetTrigger({
+  asChild = false,
+  render,
+  children,
   ...props
 }) {
-  return <SheetPrimitive.Trigger data-slot="sheet-trigger" {...props} />
+  const effectiveRender = render || (asChild && React.isValidElement(children) ? children : undefined)
+  return (
+    <SheetPrimitive.Trigger
+      data-slot="sheet-trigger"
+      render={effectiveRender}
+      {...props}
+    >
+      {asChild && React.isValidElement(children) ? undefined : children}
+    </SheetPrimitive.Trigger>
+  )
 }
 
 function SheetClose({
+  asChild = false,
+  render,
+  children,
   ...props
 }) {
-  return <SheetPrimitive.Close data-slot="sheet-close" {...props} />
+  const effectiveRender = render || (asChild && React.isValidElement(children) ? children : undefined)
+  return (
+    <SheetPrimitive.Close
+      data-slot="sheet-close"
+      render={effectiveRender}
+      {...props}
+    >
+      {asChild && React.isValidElement(children) ? undefined : children}
+    </SheetPrimitive.Close>
+  )
 }
 
 function SheetPortal({

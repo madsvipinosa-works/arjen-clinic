@@ -52,8 +52,8 @@ export default async function PatientDashboard({ searchParams }) {
             </p>
           </div>
           <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-8 font-bold shadow-md shadow-primary/20">
-              <Link href="/book" className="flex items-center gap-2">
+            <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-8 font-bold shadow-md shadow-primary/20 gap-2">
+              <Link href="/book">
                 <CalendarPlus className="w-5 h-5" />
                 Book First Checkup
               </Link>
@@ -96,8 +96,8 @@ export default async function PatientDashboard({ searchParams }) {
         </div>
 
         <div className="flex items-center gap-3">
-          <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-6 sm:px-8 font-black shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 text-xs sm:text-sm">
-            <Link href="/book" className="flex items-center gap-2">
+          <Button asChild size="lg" className="bg-primary text-primary-foreground hover:bg-primary/90 rounded-full px-6 sm:px-8 font-black shadow-lg shadow-primary/20 transition-all hover:scale-105 active:scale-95 text-xs sm:text-sm gap-2">
+            <Link href="/book">
               <CalendarPlus className="w-4 h-4" />
               <span>Book Appointment</span>
             </Link>

@@ -141,11 +141,11 @@ export function MaternalEpisodesSection({ patientId, episodes = [] }) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-bold text-gray-600">Gravida (Total Pregnancies)</Label>
-              <Input name="gravida" type="number" min="1" defaultValue="1" className="h-9 bg-white" />
+              <Input name="gravida" type="number" min="1" max="25" maxLength={2} defaultValue="1" className="h-9 bg-white" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-bold text-gray-600">Para (Deliveries)</Label>
-              <Input name="para" type="number" min="0" defaultValue="0" className="h-9 bg-white" />
+              <Input name="para" type="number" min="0" max="25" maxLength={2} defaultValue="0" className="h-9 bg-white" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-bold text-gray-600">Episode Status</Label>
@@ -187,11 +187,11 @@ export function MaternalEpisodesSection({ patientId, episodes = [] }) {
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-bold text-gray-600">Gravida</Label>
-              <Input name="gravida" type="number" min="1" defaultValue={currentEpisode.gravida || ''} className="h-9 bg-white" />
+              <Input name="gravida" type="number" min="1" max="25" maxLength={2} defaultValue={currentEpisode.gravida || ''} className="h-9 bg-white" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-bold text-gray-600">Para</Label>
-              <Input name="para" type="number" min="0" defaultValue={currentEpisode.para ?? ''} className="h-9 bg-white" />
+              <Input name="para" type="number" min="0" max="25" maxLength={2} defaultValue={currentEpisode.para ?? ''} className="h-9 bg-white" />
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-bold text-gray-600">Status</Label>

@@ -171,10 +171,13 @@ export function TimeSlotList({ timeSlots, deleteTimeSlot, updateTimeSlot }) {
                       name="max_capacity"
                       type="number"
                       min={1}
+                      max={100}
+                      maxLength={3}
                       value={editValues.max_capacity}
-                      onChange={(e) =>
-                        handleChange("max_capacity", parseInt(e.target.value, 10))
-                      }
+                      onChange={(e) => {
+                        const val = e.target.value ? Math.min(100, Math.max(1, parseInt(e.target.value.slice(0, 3), 10) || 1)) : "";
+                        handleChange("max_capacity", val);
+                      }}
                       required
                       className="focus-visible:ring-rose-500 h-9 text-sm"
                     />

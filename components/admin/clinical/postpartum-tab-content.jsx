@@ -330,7 +330,9 @@ export function PostpartumTabContent({
                     name="baby_weight_kg"
                     type="number"
                     step="0.001"
-                    min="0"
+                    min="0.5"
+                    max="9.999"
+                    maxLength={5}
                     placeholder="e.g. 3.250"
                     defaultValue={babyVitals.weight_kg ?? ''}
                     className="h-10 rounded-xl"
@@ -345,7 +347,9 @@ export function PostpartumTabContent({
                     name="baby_length_cm"
                     type="number"
                     step="0.1"
-                    min="0"
+                    min="15"
+                    max="80"
+                    maxLength={4}
                     placeholder="e.g. 50.0"
                     defaultValue={babyVitals.length_cm ?? ''}
                     className="h-10 rounded-xl"
@@ -358,6 +362,7 @@ export function PostpartumTabContent({
                     id="baby_apgar_score"
                     name="baby_apgar_score"
                     type="text"
+                    maxLength={5}
                     placeholder="e.g. 9/10"
                     defaultValue={babyVitals.apgar_score ?? ''}
                     className="h-10 rounded-xl"

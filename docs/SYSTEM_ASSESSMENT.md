@@ -1,26 +1,32 @@
 # 🏥 AR-JEN Maternity Clinic — Full System Assessment
 
-> **Assessment Date:** September 2026  
+> **Assessment Date:** October 2026 (Updated & Audited)  
 > **Assessed By:** Antigravity AI  
-> **Codebase:** `madsvipinosa-works/arjen-clinic`
+> **Codebase:** `madsvipinosa-works/arjen-clinic`  
+> **Scope Mandate:** Maternal, Prenatal & Neonatal Clinical Operations (Lying-In Clinic)
 
 ---
 
-## 📊 System Overview
+## 📊 System Overview & Scoping Mandate
 
-AR-JEN is a **full-stack Digital Clinic Management System** built specifically for a high-volume community lying-in (maternity) clinic in the Philippines. It is not a generic Hospital Information System — it is tightly scoped to maternal, prenatal, and neonatal care workflows.
+AR-JEN is a **full-stack Digital Clinic Management System** built specifically for a high-volume community lying-in (maternity) clinic in the Philippines. It is tightly tailored to maternal, prenatal, and neonatal care workflows.
+
+### 🚫 Explicit Capstone Non-Goals (Out of Scope)
+- ❌ **Billing, Cashiering & Receipts Ledger:** The clinic's operational focus is patient safety and clinical triage. Financial bookkeeping, cashiering, and revenue accounting have been **completely purged and removed** from the admin interface and codebase.
+- ❌ **PhilHealth Reimbursement Claims Pipeline:** Administrative reimbursement processing (LHIO transmission, claim adjudication, cheque releases) is an external financial ledger outside maternal clinical care. The administrative pipeline was removed. *(Note: The clinical 4-visit prenatal compliance checker card is retained inside the EMR chart to safeguard maternal health standards).*
+- ❌ **Paid Third-Party APIs:** No paid SMS or emailing services. All notifications run via free NodeMailer Gmail SMTP.
 
 ```
-┌────────────────────────────────────────────────────────────────────┐
-│                      AR-JEN SYSTEM TOPOLOGY                        │
-├─────────────────────┬──────────────────────────────────────────────┤
-│ Public-Facing       │ Landing page, Online Booking, Lobby Queue TV │
-│ Patient Portal      │ Patient Dashboard, History, Consultations    │
-│ Admin Portal        │ 12 modules (see below)                       │
-│ API Layer           │ 4 Cron Jobs + Queue API + Admin Utilities     │
-│ Database (Supabase) │ PostgreSQL + 2 DB Triggers + RLS              │
-│ Background Jobs     │ Vercel Cron Schedules (4 daily jobs)          │
-└─────────────────────┴──────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        AR-JEN SYSTEM TOPOLOGY                          │
+├─────────────────────┬──────────────────────────────────────────────────┤
+│ Public-Facing Apps  │ Landing Page, Online Booking (/book), Lobby TV   │
+│ Patient Portal      │ Patient Dashboard, Appointments, Medical History │
+│ Admin Portal        │ 9 Clinical & Operations Modules (see below)      │
+│ API Layer           │ 4 Scheduled Cron Jobs + Queue API + Core Actions │
+│ Database (Supabase) │ PostgreSQL + Risk Triggers + RLS Policies        │
+│ Background Jobs     │ Vercel Cron Schedules (4 daily automated jobs)   │
+└─────────────────────┴──────────────────────────────────────────────────┘
 ```
 
 **Tech Stack:** Next.js 15 (App Router), React, Tailwind CSS, Supabase (PostgreSQL), NodeMailer, Vercel, Lucide React, Framer Motion, Magic UI  
@@ -28,320 +34,173 @@ AR-JEN is a **full-stack Digital Clinic Management System** built specifically f
 
 ---
 
-## 🧩 Module 1: Admin Dashboard & Analytics
+## 🏛️ Active Admin Portal (9 Core Modules)
+
+When clinical staff and administrators log into `/admin`, the active navigation ([components/ui/whatsapp-sidebar.jsx](file:///c:/Users/admin/Desktop/arjen-clinic/components/ui/whatsapp-sidebar.jsx)) exposes 9 focused modules grouped into 3 operational sections:
+
+### 🩺 Category A: Clinical Core
+
+#### 🧩 Module 1: Dashboard & Triage Command Center
 **Route:** `/admin`  
-**Components:** `clinical-command-center.jsx`, `metric-card.jsx`, `monthly-trend-chart.jsx`, `triage-distribution-chart.jsx`  
-**Status:** ✅ Complete
+**Components:** `components/admin/dashboard/clinical-command-center.jsx`  
+**Status:** ✅ Complete  
+- **Live Clinic Status:** Real-time patient counts across triage stages (`Waiting → Vital Signs → Consultation → Discharged`).
+- **Real-Time KPIs:** Total registered patients, total appointments, pending reviews, and completed visits directly from Supabase.
+- **Fast Action Shortcuts:** Immediate one-click jumps to the Patient Directory, Appointment Manager, and Lobby TV Display.
 
-### What It Does
-The command center dashboard that every staff member lands on after login. Displays a real-time operational overview of the clinic for the day.
+#### 🧩 Module 2: Clinical Analytics & Trends
+**Route:** `/admin/analytics`  
+**Components:** `trend-chart-section.jsx`, `monthly-trend-chart.jsx`, `triage-chart-section.jsx`, `triage-distribution-chart.jsx`  
+**Status:** ✅ Complete  
+- **Appointment Trends:** 6-month historical trend area chart built with Recharts, driven by database RPC `get_monthly_appointment_trends`.
+- **Triage Distribution Chart:** Interactive breakdown of service volume (Prenatal vs. Delivery vs. Family Planning vs. General Consult).
+- **Executive Metric Cards:** Automated calculation of completed consultations and clinic utilization.
 
-### Features
-- **KPI Metric Cards:** Total patients today, appointments booked, currently waiting, and high-risk cases active.
-- **Monthly Trend Chart:** Visual bar/line chart of appointment volume over the past 30 days — helps identify seasonal peaks (e.g. school year maternity surges).
-- **Triage Distribution Chart:** Pie/donut chart showing the breakdown of service types served (Prenatal, Family Planning, Delivery, General Consult).
-- **Live Clinic Status:** Real-time count of patients in each triage stage (Waiting → Vital Signs → Consultation → Discharged).
-
-### Clinical Importance
-⭐⭐⭐⭐⭐ **Critical** — The clinic director and head midwife use this to make real-time staffing decisions (e.g., call in an extra nurse if 20 patients are waiting).
-
----
-
-## 🧩 Module 2: Appointments & Reception Queue
+#### 🧩 Module 3: Appointments & Reception Queue
 **Route:** `/admin/appointments`  
-**Components:** `appointments-manager.jsx`, `quick-walkin-modal.jsx`, `kanban-board.jsx`, `kanban-card.jsx`  
-**Status:** ✅ Complete
+**Components:** `appointments-manager.jsx` (962 lines), `quick-walkin-modal.jsx` (641 lines), `kanban-board.jsx`, `kanban-card.jsx`  
+**Status:** ✅ Complete  
+- **Live Drag-and-Drop Kanban Triage:** 4-lane board with optimistic UI updates. Cards automatically advance as patient triage progresses.
+- **`+ Quick Walk-In` Modal:** 30-second rapid intake for unscheduled walk-ins. Performs instant patient deduplication search before creating records and injects patient into the `Waiting` lane.
+- **Auditing & Historical Filters:** Date range filtering (`Today`, `Yesterday`, `This Week`, `This Month`, `All Past Records`, `Custom Range`) and status filtering.
+- **Queue Ticket System & CSV Export:** Assigns sequential tickets (e.g., `A-01`) synced to the lobby TV, with one-click CSV report export.
 
-### What It Does
-The primary operational workhorse for the receptionist and nursing staff. Manages the entire patient flow from arrival to discharge.
-
-### Features
-- **Live Kanban Triage Board:** Drag-and-drop board with 4 lanes: `Waiting → Vital Signs → Consultation → Discharged`. Staff drag patient cards across lanes as they progress.
-- **Real-time Ticket System:** Auto-assigns ticket numbers (e.g., `A-01`) on check-in. Tickets sync to the public lobby queue display.
-- **Quick Walk-In Modal (`+ Quick Walk-In`):** 30-second patient registration for unscheduled walk-in patients. Searches existing patient records first; if not found, creates a new profile instantly and drops the patient into the `Waiting` lane.
-- **Date Range Filters:** `Today`, `Yesterday`, `This Week`, `This Month`, `All Past Records`, `Custom Range` — allows staff to audit past appointment history.
-- **Status Filters:** Filter by `Approved`, `Pending`, `No-Show`, `Cancelled`, `Completed`.
-- **Staff Assignment:** Assign attending doctor/midwife directly from the appointment card.
-- **CSV Export:** Download filtered appointment lists for reporting.
-
-### Clinical Importance
-⭐⭐⭐⭐⭐ **Critical** — This is the physical receptionist's primary tool. The Kanban board is the heartbeat of clinic operations.
-
----
-
-## 🧩 Module 3: Patient Records (EMR)
+#### 🧩 Module 4: Patient Directory & 5-Tab Obstetric EMR
 **Route:** `/admin/patients` and `/admin/patients/[id]`  
-**Components:** `patient-clinical-header.jsx`, `patient-tabs-wrapper.jsx`, `clinical-overview-bento.jsx`, `prenatal-visits-tab.jsx`, `postpartum-tab-content.jsx`, `prenatal-labs-section.jsx`, `maternal-episodes-section.jsx`, `visit-log-card.jsx`, `emergency-transfer-modal.jsx`  
-**Status:** ✅ Complete
-
-### What It Does
-The full Electronic Medical Record (EMR) for each patient. This is the most complex and clinically important module in the system — it is the digital equivalent of a patient's physical chart.
-
-### The 5-Tab EMR Architecture
-| Tab | Content |
-|---|---|
-| **Clinical Overview** | Bento grid: latest vitals, live AOG, lab summary, PhilHealth compliance, risk flags |
-| **Medical History** | Allergies, chronic conditions, obstetric history (G/P/A/L), family history |
-| **Obstetric Visits** | All prenatal checkup logs with timeline view + new visit entry form |
-| **Postpartum** | Delivery record, baby vitals, DOH EINC newborn care protocol checklist |
-| **Documents** | File uploads (ultrasound reports, lab PDFs, consent forms) |
-
-### Key Features
-- **Live AOG Card:** Auto-calculates Age of Gestation (weeks + days) from LMP using Naegele's Rule. Shows trimester badge, EDC, and term/preterm status with a pregnancy progress bar.
-- **Milestone Clinical Alerts:** Banners that auto-appear prompting: OGTT at 24–28w, CBC repeat at 28–32w, 3rd Trimester Ultrasound at 32–36w, Birth Plan at 36w, full term at 37w, post-term urgent review at 42w+.
-- **Maternal Episode Management:** Tracks multiple pregnancies per patient (each with its own LMP, EDC, and visit history).
-- **Real-Time Vitals Safety Checker:** As midwives type BP and FHT in the visit log form, live safety alerts fire (pre-eclampsia triad detection, fetal bradycardia/tachycardia alerts, maternal pyrexia).
-- **PhilHealth MCP Compliance Card:** Visual tracker showing 1st/2nd/3rd trimester visit counts against PhilHealth Maternity Care Package requirements — green/red indicator per trimester.
-- **DOH Emergency Transfer Slip:** One-click printable DOH-standard Emergency Obstetric Transfer Form for emergency referrals to a hospital.
-- **Structured Lab Panel:** Tracks Hemoglobin, Urinalysis (Protein/Sugar/Pus Cells), Blood Type, HBsAg, VDRL/RPR Syphilis, HIV Screening, and OGTT (Fasting/1hr/2hr) with normal reference ranges and flagging.
-- **DOH EINC Newborn Protocol Checklist:** Postpartum tab tracks: Skin-to-Skin, Cord Care, Early Breastfeeding, Vitamin K, Eye Prophylaxis, Hepatitis B birth dose, BCG, NBS Filter Card #, Hearing Screening.
-
-### Clinical Importance
-⭐⭐⭐⭐⭐ **Critical** — The EMR IS the clinic. Without this, doctors are flying blind. Every clinical decision is made from information in this module.
+**Components:** `patient-directory-client.jsx`, `patient-clinical-header.jsx`, `clinical-overview-bento.jsx` (780 lines), `prenatal-visits-tab.jsx`, `postpartum-tab-content.jsx`, `prenatal-labs-section.jsx`, `maternal-episodes-section.jsx`, `emergency-transfer-modal.jsx`  
+**Status:** ✅ Complete  
+- **Tab 1 — Clinical Overview Bento:** Immediate 3-second situational awareness (latest BP, live AOG, current trimester, PhilHealth MCP compliance, and high-risk monitoring flags).
+- **Tab 2 — Prenatal Visits:** Progressive checkup entry form with live maternal vitals safety checks and historical checkup timeline.
+- **Tab 3 — Structured Labs & Ultrasound:** Structured panels for Hemoglobin, Urinalysis (Protein/Sugar/Pus Cells), Blood Typing, HBsAg, VDRL/RPR Syphilis, and 75g OGTT with normal reference ranges.
+- **Tab 4 — Postpartum & DOH Newborn Care (EINC):** Delivery record tracking, APGAR scores, baby vitals, and full DOH Essential Intrapartum and Newborn Care protocol checklist (Eye prophylaxis, Vit K, BCG, Hep B, NBS filter card #).
+- **Tab 5 — Birth Plan & Documents:** Digital representation of the DOH lying-in birth plan form and secure medical file uploads.
+- **DOH BEmONC Emergency Transfer Slip:** One-click modal generating printable DOH-standard emergency obstetric transfer referral forms.
 
 ---
 
-## 🧩 Module 4: Online Booking System (Public)
-**Route:** `/book`  
-**Components:** `app/(public)/book/page.jsx`, `app/(public)/layout.jsx`  
-**Status:** ✅ Complete
+### ⚙️ Category B: Clinic Operations
 
-### What It Does
-The patient-facing public booking page. Patients can book prenatal checkups, family planning, general consults, or delivery services online.
+#### 🧩 Module 5: Online Teleconsultations Hub
+**Route:** `/admin/consultations`  
+**Component:** `consultations-inbox.jsx` (1,006 lines)  
+**Status:** ✅ Complete  
+- **3-Column Telehealth Hub:** Thread list, active conversation panel, and bedside drawer clinical snapshot.
+- **Bedside Drawer:** Viewing an inquiry opens the patient's live AOG, latest blood pressure, and high-risk flags without leaving the thread.
+- **DOH BEmONC Clinical Reply Macros:** Pre-formatted clinical response templates (e.g. In-Clinic Emergency Admission, Hydration & Left Lateral Rest, Fetal Kick Count Instructions).
+- **Real-Time Supabase Subscription:** Instant updates for new patient messages with unread counters.
 
-### Features
-- **Service Selection:** Visual cards for service types (Prenatal, Delivery, Family Planning, General Consult).
-- **Capacity-Aware Scheduler:** Shows available AM/PM slots. Blocks full shifts. Blocks weekends and clinic holidays.
-- **Smart Auto-Approval Banner:** If the patient qualifies (routine service type, capacity < 80%, zero prior no-shows), their booking is **instantly approved** with a confirmation banner — no staff action required.
-- **Pending Queue:** If high-risk or capacity is full, booking goes to `Pending` for manual staff review.
-
-### Clinical Importance
-⭐⭐⭐⭐ **High** — Reduces phone-in booking load significantly. The auto-approval engine handles ~70% of bookings without any human touch.
-
----
-
-## 🧩 Module 5: Telehealth / Online Consultations
-**Route:** `/admin/consultations` and `/patient/consultation`  
-**Component:** `consultations-inbox.jsx`  
-**Status:** ✅ Complete
-
-### What It Does
-A secure 2-way clinical messaging system between patients and attending clinic staff. Replaces phone tag for follow-up questions, prescription refills, and test result explanations.
-
-### Features
-- **Consultation Threads:** Each thread is linked to a specific patient. Staff see patient's clinical snapshot (AOG, latest BP, risk flags) alongside the conversation.
-- **Live Bedside Drawer:** Clicking a patient thread opens a clinical snapshot with AOG, current trimester, last BP, and high-risk flag — without leaving the inbox.
-- **Reply System:** Staff can compose rich clinical replies, attach recommendations, and close threads.
-- **3-Column Telehealth Hub Layout:** Thread list | Active conversation | Clinical sidebar snapshot.
-- **Unread Badge Counter:** Alerts staff to new patient messages.
-
-### Clinical Importance
-⭐⭐⭐⭐ **High** — Especially critical for high-risk patients who need frequent clinical check-ins between in-person visits.
-
----
-
-## 🧩 Module 6: Schedule Management
+#### 🧩 Module 6: Clinic Schedule Management
 **Route:** `/admin/schedule`  
-**Status:** ✅ Complete
+**Components:** `app/admin/schedule/page.jsx` (328 lines), `time-slot-list.jsx`  
+**Status:** ✅ Complete  
+- **Capacity Controls:** Manage max morning (AM) and afternoon (PM) booking quotas.
+- **Independent Saturday Shifts:** Separate toggle and quotas for Saturday operating hours.
+- **Holiday & Blackout Manager:** Add and remove specific dates from receiving appointments; enforced in real-time by the booking engine.
 
-### What It Does
-Clinic schedule configuration panel for administrators. Defines capacity limits and block-outs.
-
-### Features
-- **Shift Capacity Settings:** Set max morning and afternoon slots (default: 10 each).
-- **Independent Saturday Blocks:** Separate capacity for Saturday schedules.
-- **Holiday/Day-Off Management:** Block specific dates from accepting bookings.
-- **Auto-enforcement:** Booking engine respects these limits in real-time.
-
-### Clinical Importance
-⭐⭐⭐ **Medium** — Prevents overbooking, which is a major patient satisfaction issue in Philippine community clinics.
-
----
-
-## 🧩 Module 7: Billing & Invoicing
-**Route:** `/admin/billing`  
-**Components:** `billing-dashboard-client.jsx`, `invoice-creator-modal.jsx`, `counter-payment-modal.jsx`, `invoices-table.jsx`, `printable-receipt-modal.jsx`  
-**Library:** `lib/billing-protocols.js`  
-**Status:** ✅ Complete (deprioritized per operational focus)
-
-### What It Does
-A lightweight billing and invoicing module that can generate itemized bills and record payments.
-
-### Features
-- **Invoice Creator:** Itemized billing (Prenatal Consult, Ultrasound, Delivery Package, Lab Tests, Medicines).
-- **Counter Payment Modal:** Record payment (Cash, GCash/QR, PhilHealth deduction).
-- **Printable Official Receipt:** Generate a printable receipt/statement of account.
-- **Invoices Table:** View all invoices with status (Paid, Partial, Unpaid).
-
-> ⚠️ **Note:** Per the user's operational mandate, this module exists but is **not the operational focus** of the system. The clinic's primary concern is patient safety and clinical workflow — not revenue accounting.
+#### 🧩 Module 7: Website Content CMS
+**Route:** `/admin/cms`  
+**Components:** `cms-manager.jsx` (45KB), `logo-studio.jsx`, `favicon-studio.jsx`  
+**Status:** ✅ Complete  
+- **Public Website CMS:** Dynamically update landing page hero titles, contact information, service descriptions, and operating hours.
+- **Logo & Favicon Studio:** Live upload and cropping tool updating the clinic brand logo across the navbar, lobby TV, and browser tabs.
 
 ---
 
-## 🧩 Module 8: PhilHealth Claims Pipeline
-**Route:** `/admin/philhealth`  
-**Components:** `philhealth-dashboard-client.jsx`, `philhealth-pipeline-view.jsx`, `philhealth-claim-modal.jsx`, `philhealth-status-modal.jsx`  
-**Status:** ✅ Complete
+### 🔒 Category C: System & Compliance
 
-### What It Does
-Tracks the lifecycle of PhilHealth reimbursement claims from document preparation to cheque receipt.
-
-### Features
-- **Claims Pipeline Board:** Visual pipeline: `Draft Documents → Transmitted → In Process → Cheque Released`
-- **MCP Claim Modal:** Create a claim linked to a patient's maternal episode.
-- **Status Tracking:** Track individual claim progress and due dates.
-- **60-Day Deadline Awareness:** PhilHealth denies claims filed > 60 days after delivery.
-
-### Clinical Importance
-⭐⭐⭐⭐ **High** — Missed PhilHealth claims are lost revenue for a lying-in clinic.
-
----
-
-## 🧩 Module 9: CMS, Settings & Branding
-**Route:** `/admin/settings`, `/admin/cms`  
-**Components:** `cms-manager.jsx`, `logo-studio.jsx`, `favicon-studio.jsx`  
-**Status:** ✅ Complete
-
-### What It Does
-Allows the clinic director to customize the public-facing website and brand identity without writing any code.
-
-### Features
-- **CMS Manager:** Edit the clinic landing page (Hero section, About section, Services, Contact info, Google Maps link).
-- **Logo Studio:** Upload or update the clinic logo (shown in navbar, patient portal, TV queue display).
-- **Favicon Studio:** Upload and update the browser favicon.
-- **Hero Image Editor:** Dual hero image slots (left and right) for the landing page.
-
----
-
-## 🧩 Module 10: Security — RBAC & Audit Trail
+#### 🧩 Module 8: DPA 2012 Security Audit Trail
 **Route:** `/admin/audit-logs`  
 **Components:** `audit-logs-viewer.jsx`, `lib/rbac.js`, `lib/audit-logger.js`  
-**Status:** ✅ Complete
+**Status:** ✅ Complete  
+- **RA 10173 Compliance:** Full adherence to the Philippine Data Privacy Act of 2012.
+- **Immutable Audit Logging:** Every create, update, or export of Protected Health Information (PHI) writes an immutable record to `audit_logs` storing user ID, role, action, target entity, and timestamp.
+- **Strict Role-Based Access Control (RBAC):** Access to audit logs is strictly isolated to Clinic Administrators.
 
-### What It Does
-Implements clinical data governance: role-based access and an immutable log of all sensitive data modifications.
-
-### RBAC Role Hierarchy
-| Role | Permissions |
-|---|---|
-| `admin` | Full system access, settings, audit logs, billing |
-| `doctor` | Full clinical chart access, prescription notes |
-| `midwife` | Vitals entry, triage, visit logs, prenatal records |
-| `nurse` | Triage queue management, vital signs |
-| `patient` | Own records and consultation messages only |
-
-### Audit Trail
-- Every create/edit/delete on clinical records (visit logs, patient profiles, lab results) writes an immutable entry to `audit_logs` table.
-- Stores: `user_id`, `action`, `table_name`, `record_id`, `timestamp`, `changed_data`.
-- Required for **Philippine Data Privacy Act (RA 10173)** compliance.
-
-### Clinical Importance
-⭐⭐⭐⭐⭐ **Critical** — Legally required.
+#### 🧩 Module 9: System Settings & Credentials
+**Route:** `/admin/settings`  
+**Component:** `app/admin/settings/page.jsx` (208 lines)  
+**Status:** ✅ Complete  
+- **Clinic Profile Settings:** Official clinic name, contact phone, physical address, and emergency hotline.
+- **Administrator Security:** Secure credential management and administrator account authentication settings.
 
 ---
 
-## 🧩 Module 11: Patient Portal
-**Routes:** `/patient`, `/patient/appointments`, `/patient/history`, `/patient/consultation`  
-**Status:** ✅ Complete
+## 🌐 Public & Patient Portals (Decoupled Applications)
 
-### What It Does
-A patient-facing self-service portal where registered patients can view their own medical history and communicate with clinic staff.
+The system includes 3 user-facing applications separate from the admin portal:
 
-### Features
-- **Patient Dashboard:** Overview of upcoming appointments, pregnancy status, and clinical notices.
-- **Appointment History:** View all past and upcoming bookings.
-- **Medical History View:** Read-only view of their own prenatal visit logs, lab results, and clinical notes.
-- **Consultation Messaging:** Start a telehealth conversation thread with clinic staff.
-
----
-
-## 🧩 Module 12: Public Lobby TV Queue (`/queue`)
-**Route:** `/queue`  
-**Component:** `app/queue/page.jsx`  
-**Status:** ✅ Complete
-
-### What It Does
-A full-screen, TV-friendly real-time queue display designed to be cast/projected to a waiting room monitor. Eliminates the need for receptionists to shout patient names.
-
-### Features
-- **Now Calling Panel:** Large ticket number + masked patient name (privacy: `Maria S.`) + room name.
-- **At Triage Panel:** Patients currently having vitals taken.
-- **Waiting List:** Next 4 patients in line with their service type.
-- **Audio Chime + Text-to-Speech:** When a ticket moves to Consultation, plays a clinic chime tone and announces: *"Now calling Ticket A-05. Please proceed to the Consultation Room."*
-- **Real-time Supabase Subscription:** Updates instantly when staff drag cards on the Kanban board (no page refresh needed).
-- **Fullscreen Toggle + Clock Display.**
+1. **Public Online Booking (`/book`)**:
+   - Patient-facing appointment booking with capacity-aware slot selection.
+   - Smart Triage auto-approval engine (instantly approves low-risk routine prenatal checkups).
+2. **Patient Self-Service Portal (`/patient`)**:
+   - Dedicated portal (`/patient`, `/patient/appointments`, `/patient/history`, `/patient/consultation`).
+   - Decoupled account architecture supporting family dependents via a patient switcher.
+   - Read-only obstetric history, past vitals timeline, and two-way clinical telehealth messaging.
+3. **Public Lobby TV Queue Display (`/queue`)**:
+   - Full-screen TV interface with automated Web Audio harmonic chime and text-to-speech ticket calling (*"Now calling Ticket A-01, please proceed to Consultation Room"*).
+   - Real-time Supabase websocket listener with masked patient names (`Maria S.`) for patient privacy.
 
 ---
 
-## 🤖 Automation Systems (9 Total)
+## 🤖 Automation Systems (9 Total — Verified in Code)
 
-### ⚡ Category 1: PostgreSQL Database Triggers (Event-Driven)
-
-#### Automation 1: Auto-Risk Scorer
-**File:** `supabase/migrations/20260929000000_auto_risk_scorer.sql`  
-**Trigger:** `AFTER INSERT OR UPDATE OF bp, weight ON visit_logs`
-- If `systolic BP ≥ 140 OR diastolic BP ≥ 90` → flags `patients.is_high_risk = TRUE`
-- If `current_weight - previous_weight > 2.0 kg` → flags `patients.is_high_risk = TRUE`
-
----
+### ⚡ Category 1: Database Triggers (PostgreSQL Level)
+- **Automation 1: Auto-Risk Scorer** (`supabase/migrations/20260929000000_auto_risk_scorer.sql`)  
+  PostgreSQL trigger executing on `visit_logs` insert/update. Automatically flags `patients.is_high_risk = true` if systolic $\ge 140$, diastolic $\ge 90$, or $\Delta\text{weight} > 2.0\text{ kg}$ between checkups.
 
 ### ⚡ Category 2: Application-Level Event Hooks
+- **Automation 2: Smart Triage Auto-Approval** (`app/(auth)/actions.js` → `createAppointment`)  
+  Evaluates service type, clinic capacity ($<80\%$), and no-show history. Routine low-risk prenatal appointments are auto-approved instantly with email confirmation.
+- **Automation 3: Real-Time Maternal Vitals Safety Checker** (`lib/clinical-protocols.js` → `evaluateMaternalVitalsSafety`)  
+  Validates live clinical thresholds in `visit-log-form.jsx`: Pre-eclampsia Triad (BP $\ge 140/90$ + Proteinuria), Severe Hypertension ($\ge 160/110$), Maternal Pyrexia ($\ge 38^\circ\text{C}$), Fetal Bradycardia/Tachycardia ($<110$ or $>160\text{ bpm}$).
+- **Automation 4: PhilHealth MCP Compliance Checker** (`components/admin/clinical/philhealth-mcp-card.jsx`)  
+  Evaluates maternal visit count against PhilHealth Maternity Care Package (1st Trimester $\le 14\text{w}$, 2nd Trimester $14-27\text{w}$, and 2 checkups in 3rd Trimester $\ge 28\text{w}$) with a staff manual override option.
+- **Automation 5: Dynamic AOG Calculator + Milestone Alerts** (`lib/clinical-protocols.js` → `calculateObstetricDates`)  
+  Auto-computes gestational age ($w + d/7$) via Naegele's rule on every render. Triggers obstetric milestone banners: OGTT at 24–28w, repeat CBC at 28–32w, 3rd Trimester Ultrasound at 32–36w, Birth Plan review at 36w, Term at 37w, Post-term alert at 42w+.
 
-#### Automation 2: Smart Triage Auto-Approval
-**File:** `app/(auth)/actions.js` → `createAppointment()`
-- Evaluates: routine service, capacity < 80%, zero no-shows → Status auto-set to `Approved`.
-
-#### Automation 3: Real-Time Maternal Vitals Safety Checker
-**File:** `lib/clinical-protocols.js` → `evaluateMaternalVitalsSafety()`  
-- Live-evaluates BP, Temp, FHT, and Weight gain against critical maternal/fetal emergency thresholds.
-
-#### Automation 4: PhilHealth MCP Compliance Checker
-**Component:** `components/admin/clinical/philhealth-mcp-card.jsx`
-- Evaluates 1st, 2nd, and 3rd trimester visit counts against PhilHealth Maternity Care Package requirements.
-
-#### Automation 5: Dynamic AOG Calculator + Milestone Alerts
-**File:** `lib/clinical-protocols.js` → `calculateObstetricDates()`  
-**Integration:** `visit-log-form.jsx`, `clinical-overview-bento.jsx`, `patient-clinical-header.jsx`
-- Automatically computes Age of Gestation (weeks + days) from LMP. Fires alerts for OGTT (24–28w), CBC (28–32w), Ultrasound (32–36w), Birth Plan (36w), Term (37w), Post-term (42w).
+### ⚡ Category 3: Scheduled Background Cron Jobs
+- **Automation 6: 24-Hour Appointment Reminders** (`/api/cron/reminders` — Daily at 7:00 AM)  
+  Queries approved appointments for tomorrow and dispatches personalized email reminders via NodeMailer.
+- **Automation 7: Nightly No-Show Reconciliation** (`/api/cron/reconcile` — Daily at 7:00 PM)  
+  Transitions unserved `Approved`/`Waiting` appointments to `No-Show` and emails a gentle rebooking link.
+- **Automation 8: Postpartum & Newborn Recalls** (`/api/cron/recalls` — Daily at 9:00 AM)  
+  Automates Day 3–5 Newborn Screening (NBS) reminders and 6-Week Infant Immunization / Family Planning recalls based on delivery dates.
+- **Automation 9: End-of-Day Clinical Operations Digest** (`/api/cron/eod-report` — Daily at 8:00 PM)  
+  Emails the clinic administrator an operational summary (patients seen, no-shows, high-risk cases, tomorrow's schedule). Revenue is strictly omitted.
 
 ---
 
-### ⚡ Category 3: Vercel Cron Jobs (Scheduled Background Jobs)
+## 📐 Supporting Libraries & Utilities
 
-#### Automation 6: 24-Hour Appointment Reminder Emails
-**Route:** `/api/cron/reminders` (`0 7 * * *` — 7:00 AM daily)
-- Dispatches personalized reminder email 24h prior to visit.
-
-#### Automation 7: Nightly No-Show Reconciliation
-**Route:** `/api/cron/reconcile` (`0 19 * * *` — 7:00 PM daily)
-- Transitions unserved appointments to `No-Show` and sends recovery rebooking invitation.
-
-#### Automation 8: Postpartum & Newborn Recall Emails
-**Route:** `/api/cron/recalls` (`0 9 * * *` — 9:00 AM daily)
-- Sends Day 3–5 NBS reminders, Day 7 maternal wound checks, and Week 6 immunization reminders.
-
-#### Automation 9: End-of-Day Clinical Operations Digest
-**Route:** `/api/cron/eod-report` (`0 20 * * *` — 8:00 PM daily)
-- Sends executive summary to clinic administrator of patients attended, no-shows, and high-risk cases.
+| File | Purpose | Status |
+|---|---|:---:|
+| `lib/clinical-protocols.js` | Obstetric date calculation, vitals safety checker, lab evaluation rules | ✅ Active |
+| `lib/rbac.js` | Role permissions (`admin`, `doctor`, `midwife`, `nurse`, `patient`) | ✅ Active |
+| `lib/audit-logger.js` | Immutable DPA 2012 audit logging to Supabase | ✅ Active |
+| `utils/email.js` | Zero-cost NodeMailer Gmail SMTP email engine | ✅ Active |
+| `lib/utils.js` | PHT timezone date formatting, Tailwind class merge utilities | ✅ Active |
 
 ---
 
 ## 🗺️ System Completeness Summary
 
-| Module / Protocol | Status | Priority |
-|---|---|---|
-| Admin Dashboard & Analytics | ✅ Complete | Critical |
-| Appointments & Reception Queue | ✅ Complete | Critical |
-| Patient EMR (5-Tab Architecture) | ✅ Complete | Critical |
-| Online Booking + Auto-Approval | ✅ Complete | High |
-| Telehealth / Consultations Hub | ✅ Complete | High |
-| Schedule Management | ✅ Complete | Medium |
-| Billing & Invoicing | ✅ Complete (deprioritized) | Low |
-| PhilHealth Claims Pipeline | ✅ Complete | High |
-| CMS & Branding Studio | ✅ Complete | Medium |
-| RBAC & Audit Trail | ✅ Complete | Critical |
-| Patient Portal | ✅ Complete | High |
-| Lobby TV Queue Display (`/queue`) | ✅ Complete | Medium |
-| Dynamic AOG + Obstetric Milestones | ✅ Complete | High |
-| Structured Lab Test Tracker | ✅ Complete | High |
-| Philippine DOH Newborn Care Protocol | ✅ Complete | High |
-| Emergency Medicine & Supplies Monitor | ⏳ Next In Queue | Medium |
+| Module / System Component | Type | Status |
+|---|---|:---:|
+| **Dashboard & Triage Command Center** | Admin Portal | ✅ Complete |
+| **Clinical Analytics & Trends** | Admin Portal | ✅ Complete |
+| **Appointments & Reception Queue** | Admin Portal | ✅ Complete |
+| **Patient Directory & 5-Tab EMR** | Admin Portal | ✅ Complete |
+| **Online Teleconsultations Hub** | Admin Portal | ✅ Complete |
+| **Clinic Schedule Management** | Admin Portal | ✅ Complete |
+| **Website Content CMS** | Admin Portal | ✅ Complete |
+| **DPA 2012 Audit Trail** | Admin Portal | ✅ Complete |
+| **System Settings** | Admin Portal | ✅ Complete |
+| **Public Online Booking** | Public Application | ✅ Complete |
+| **Patient Self-Service Portal** | Patient Application | ✅ Complete |
+| **Public Lobby TV Queue Display** | Public Broadcast | ✅ Complete |
+| **All 9 Clinical Automations (Triggers + Crons)** | Automation Engine | ✅ Complete |
+| **Billing & Cashiering Ledger** | Out-of-Scope | ❌ Purged |
+| **Financial PhilHealth Claims Pipeline** | Out-of-Scope | ❌ Purged |
+| **Emergency Medicine & Supplies Monitor** | Out-of-Scope | ❌ Excluded (Scope Frozen) |
+
+> 🔒 **Scope Freeze Active:** The 12 active components (9 Admin modules + 3 User/Public applications) along with the 9 clinical automations constitute the finalized system boundaries. No new modules will be added; all future work is dedicated exclusively to continuous improvement, UI/UX polish, and clinical hardening.

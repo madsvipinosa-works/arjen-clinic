@@ -201,7 +201,8 @@ export function VisitLogForm({
           <Input 
             name="aog_by_utz" 
             value={aogOverride}
-            onChange={(e) => setAogOverride(e.target.value)}
+            maxLength={7}
+            onChange={(e) => setAogOverride(e.target.value.slice(0, 7))}
             placeholder="e.g. 28 4/7" 
             className="h-10 border-gray-200 focus-visible:ring-rose-500" 
           />
@@ -215,7 +216,8 @@ export function VisitLogForm({
           <Input 
             name="bp" 
             value={bp}
-            onChange={(e) => setBp(e.target.value)}
+            maxLength={7}
+            onChange={(e) => setBp(e.target.value.replace(/[^0-9/]/g, '').slice(0, 7))}
             placeholder="120/80" 
             className={`h-10 font-mono font-semibold transition-colors ${
               safetyEval.alerts.some(a => a.type.startsWith('BP_CRITICAL'))
@@ -238,7 +240,8 @@ export function VisitLogForm({
           <Input 
             name="temp" 
             value={temp}
-            onChange={(e) => setTemp(e.target.value)}
+            maxLength={4}
+            onChange={(e) => setTemp(e.target.value.replace(/[^0-9.]/g, '').slice(0, 4))}
             placeholder="36.5" 
             className="h-9 border-gray-200 focus-visible:ring-rose-500 text-sm" 
           />
@@ -251,7 +254,8 @@ export function VisitLogForm({
           <Input 
             name="pr" 
             value={pr}
-            onChange={(e) => setPr(e.target.value)}
+            maxLength={3}
+            onChange={(e) => setPr(e.target.value.replace(/\D/g, '').slice(0, 3))}
             placeholder="80" 
             className="h-9 border-gray-200 focus-visible:ring-rose-500 text-sm" 
           />
@@ -262,7 +266,8 @@ export function VisitLogForm({
           <Input 
             name="rr" 
             value={rr}
-            onChange={(e) => setRr(e.target.value)}
+            maxLength={2}
+            onChange={(e) => setRr(e.target.value.replace(/\D/g, '').slice(0, 2))}
             placeholder="18" 
             className="h-9 border-gray-200 focus-visible:ring-rose-500 text-sm" 
           />
@@ -275,7 +280,8 @@ export function VisitLogForm({
           <Input 
             name="weight" 
             value={weight}
-            onChange={(e) => setWeight(e.target.value)}
+            maxLength={5}
+            onChange={(e) => setWeight(e.target.value.replace(/[^0-9.]/g, '').slice(0, 5))}
             placeholder="62.5" 
             className="h-9 border-gray-200 focus-visible:ring-rose-500 text-sm" 
             required 
@@ -286,6 +292,8 @@ export function VisitLogForm({
           <Label className="text-[11px] font-bold text-gray-500 uppercase">Fundic Ht (cm)</Label>
           <Input 
             name="fh" 
+            maxLength={2}
+            onInput={(e) => { if (e.target.value.length > 2) e.target.value = e.target.value.slice(0, 2); }}
             placeholder="28" 
             className="h-9 border-gray-200 focus-visible:ring-rose-500 text-sm" 
           />
@@ -298,7 +306,8 @@ export function VisitLogForm({
           <Input 
             name="fht" 
             value={fht}
-            onChange={(e) => setFht(e.target.value)}
+            maxLength={3}
+            onChange={(e) => setFht(e.target.value.replace(/\D/g, '').slice(0, 3))}
             placeholder="140" 
             className={`h-9 text-sm ${
               safetyEval.alerts.some(a => a.type.startsWith('FHT'))
