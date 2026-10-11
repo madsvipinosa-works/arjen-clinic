@@ -1,12 +1,13 @@
 'use client';
 
-import React, { useState, useMemo, useTransition } from 'react';
+import React, { useState, useMemo, useTransition, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   Users, Baby, AlertTriangle, HeartPulse, Search, Plus, Calendar,
   FileText, ArrowRight, CheckCircle2, ChevronRight, ShieldCheck,
-  ShieldAlert, Sparkles, Droplets, Clock, Filter, Phone, UserPlus, MapPin
+  ShieldAlert, Sparkles, Droplets, Clock, Filter, Phone, UserPlus, MapPin,
+  Download
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -51,6 +52,7 @@ export function PatientDirectoryClient({ initialPatients = [], totalDbCount = 0 
   const router = useRouter();
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
+  const searchInputRef = useRef(null);
 
   // URL state synchronization
   const initialFilter = searchParams.get('filter') || 'all';
@@ -58,6 +60,18 @@ export function PatientDirectoryClient({ initialPatients = [], totalDbCount = 0 
 
   const [activeFilter, setActiveFilter] = useState(initialFilter);
   const [searchQuery, setSearchQuery] = useState(initialSearch);
+
+  // Keyboard shortcut: '/' focuses search input unless already typing in a field
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === '/' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   // Synchronize state when filter changes
   const handleSelectFilter = (filterId) => {
@@ -188,6 +202,84 @@ export function PatientDirectoryClient({ initialPatients = [], totalDbCount = 0 
     return result;
   }, [enrichedPatients, activeFilter, searchQuery]);
 
+  // Export DOH Maternal Census CSV
+  const handleExportCensusCSV = () => {
+    const headers = [
+      "Patient ID",
+      "Full Name",
+      "Age",
+      "Date of Birth",
+      "Blood Type",
+      "PhilHealth PIN",
+      "Contact Number",
+      "Address",
+      "Gravida",
+      "Para",
+      "LMP",
+      "EDC",
+      "AOG",
+      "Trimester",
+      "Maternal Episode Status",
+      "Risk Classification",
+      "Allergies",
+      "Registered Date"
+    ];
+
+    const csvRows = filteredPatients.map((p) => {
+      const id = (p.id || '').replace(/"/g, '""');
+      const name = (p.full_name || '').replace(/"/g, '""');
+      const age = p.age ?? (p.date_of_birth ? Math.floor((new Date() - new Date(p.date_of_birth)) / (365.25 * 24 * 60 * 60 * 1000)) : 'N/A');
+      const dob = p.date_of_birth || 'N/A';
+      const blood = (p.blood_type || 'Unspecified').replace(/"/g, '""');
+      const philhealth = (p.philhealth_number || 'N/A').replace(/"/g, '""');
+      const contact = (p.contact_number || 'N/A').replace(/"/g, '""');
+      const address = (p.address || 'N/A').replace(/"/g, '""');
+      const gravida = p.gravida ?? 1;
+      const para = p.para ?? 0;
+      const lmp = p.activeEpisode?.lmp || 'N/A';
+      const edc = p.obstetricData?.edcFormatted || 'N/A';
+      const aog = p.obstetricData?.aogFormatted || 'N/A';
+      const trimester = p.obstetricData?.trimester || 'N/A';
+      const epStatus = (p.activeEpisode?.status || 'None').replace(/"/g, '""');
+      const risk = p.isHighRisk ? 'HIGH RISK' : 'LOW RISK';
+      const allergies = (p.allergies || 'NKDA').replace(/"/g, '""');
+      const regDate = p.created_at ? new Date(p.created_at).toLocaleDateString('en-PH') : 'N/A';
+
+      return [
+        `"${id}"`,
+        `"${name}"`,
+        `"${age}"`,
+        `"${dob}"`,
+        `"${blood}"`,
+        `"${philhealth}"`,
+        `"${contact}"`,
+        `"${address}"`,
+        `"${gravida}"`,
+        `"${para}"`,
+        `"${lmp}"`,
+        `"${edc}"`,
+        `"${aog}"`,
+        `"${trimester}"`,
+        `"${epStatus}"`,
+        `"${risk}"`,
+        `"${allergies}"`,
+        `"${regDate}"`
+      ];
+    });
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...csvRows.map((r) => r.join(","))].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const dateStamp = new Date().toISOString().split("T")[0];
+    link.setAttribute("href", url);
+    link.setAttribute("download", `arjen-doh-maternal-census-${activeFilter}-${dateStamp}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
       {/* ── Top Breadcrumbs & Page Header ── */}
@@ -207,13 +299,25 @@ export function PatientDirectoryClient({ initialPatients = [], totalDbCount = 0 
           </p>
         </div>
 
-        {/* Action Button: Magic UI Shimmer Button */}
-        <Link href="/admin/patients/new">
-          <ShimmerButton className="shadow-sm">
-            <UserPlus className="w-4 h-4" />
-            <span>Register New Patient</span>
-          </ShimmerButton>
-        </Link>
+        {/* Action Buttons: Magic UI Shimmer Button & CSV Census Export */}
+        <div className="flex items-center gap-2.5">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleExportCensusCSV}
+            className="rounded-2xl border-gray-200/90 hover:bg-gray-50 text-xs font-bold text-gray-700 h-10 px-4 gap-2 shadow-2xs cursor-pointer"
+          >
+            <Download className="w-4 h-4 text-gray-500" />
+            <span>Export DOH Census (CSV)</span>
+          </Button>
+
+          <Link href="/admin/patients/new">
+            <ShimmerButton className="shadow-sm">
+              <UserPlus className="w-4 h-4" />
+              <span>Register New Patient</span>
+            </ShimmerButton>
+          </Link>
+        </div>
       </div>
 
       {/* ── Magic UI Bento Grid: 4 Clinical Overview Cards ── */}
@@ -231,6 +335,7 @@ export function PatientDirectoryClient({ initialPatients = [], totalDbCount = 0 
         searchQuery={searchQuery}
         onSearchChange={handleSearchChange}
         onClearSearch={handleClearSearch}
+        inputRef={searchInputRef}
       />
 
       {/* ── Main Patient Table Card ── */}

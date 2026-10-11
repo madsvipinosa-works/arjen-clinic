@@ -17,6 +17,7 @@ export function ClinicalFilterChips({
   searchQuery = '',
   onSearchChange,
   onClearSearch,
+  inputRef,
 }) {
   const chips = [
     {
@@ -125,22 +126,29 @@ export function ClinicalFilterChips({
       <div className="relative w-full lg:w-72 shrink-0">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
         <Input
+          ref={inputRef}
           type="text"
           value={searchQuery}
           onChange={(e) => onSearchChange?.(e.target.value)}
           placeholder="Search by name, contact, address..."
-          className="pl-9 pr-8 h-9 text-xs bg-gray-50/70 border-gray-200 focus-visible:bg-white focus-visible:ring-rose-500 rounded-xl"
+          className="pl-9 pr-14 h-9 text-xs bg-gray-50/70 border-gray-200 focus-visible:bg-white focus-visible:ring-rose-500 rounded-xl"
         />
-        {searchQuery && (
-          <button
-            type="button"
-            onClick={onClearSearch}
-            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-0.5 rounded-full hover:bg-gray-100 transition-colors"
-            title="Clear search"
-          >
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
+        <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1">
+          {searchQuery ? (
+            <button
+              type="button"
+              onClick={onClearSearch}
+              className="text-gray-400 hover:text-gray-600 p-0.5 rounded-full hover:bg-gray-100 transition-colors"
+              title="Clear search"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          ) : (
+            <kbd className="hidden sm:inline-flex items-center justify-center text-[10px] font-mono text-gray-400 bg-white/80 border border-gray-200 rounded px-1.5 py-0.5 shadow-2xs pointer-events-none">
+              /
+            </kbd>
+          )}
+        </div>
       </div>
     </div>
   );

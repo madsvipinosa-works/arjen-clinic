@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Ambulance,
   Printer,
@@ -34,6 +34,16 @@ export function EmergencyTransferModal({
   );
   const [accompanyingStaff, setAccompanyingStaff] = useState('RM On-Duty Midwife');
 
+  // Keyboard shortcut: Escape closes modal
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const handlePrint = () => {
@@ -41,9 +51,44 @@ export function EmergencyTransferModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl border border-gray-200/90 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 space-y-6">
-        
+    <div 
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs animate-in fade-in duration-200"
+    >
+      {/* Isolated Print Styles */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #doh-emergency-transfer-slip, #doh-emergency-transfer-slip * {
+            visibility: visible !important;
+          }
+          #doh-emergency-transfer-slip {
+            position: fixed !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: auto !important;
+            border: none !important;
+            box-shadow: none !important;
+            padding: 12mm 15mm !important;
+            margin: 0 !important;
+            background: white !important;
+          }
+          .no-print {
+            display: none !important;
+          }
+        }
+      `}} />
+
+      <div 
+        id="doh-emergency-transfer-slip"
+        className="bg-white rounded-3xl border border-gray-200/90 shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-6 md:p-8 space-y-6"
+      >
         {/* Header Strip */}
         <div className="flex items-start justify-between border-b border-gray-100 pb-4">
           <div className="flex items-center gap-3">
@@ -55,7 +100,7 @@ export function EmergencyTransferModal({
                 <span className="text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full bg-red-100 text-red-700">
                   DOH BEmONC Referral
                 </span>
-                <span className="text-xs text-gray-400 font-mono">Form DOH-EMR-REF</span>
+                <span className="text-xs text-gray-400 font-mono">Form DOH-EMR-REF-01</span>
               </div>
               <h2 className="text-xl font-black text-gray-900 tracking-tight mt-0.5">
                 Emergency Obstetric Transfer Slip
@@ -68,7 +113,7 @@ export function EmergencyTransferModal({
             variant="ghost"
             size="sm"
             onClick={onClose}
-            className="h-8 w-8 p-0 text-gray-400 hover:text-gray-700 rounded-full"
+            className="no-print h-8 w-8 p-0 text-gray-400 hover:text-gray-700 rounded-full cursor-pointer"
           >
             <X className="w-4 h-4" />
           </Button>
@@ -80,10 +125,10 @@ export function EmergencyTransferModal({
             <p className="font-black text-gray-800 uppercase tracking-wider text-[11px]">
               Referring Facility: AR-JEN Maternity &amp; Lying-In Clinic
             </p>
-            <span className="text-gray-500">Date: {new Date().toLocaleDateString()}</span>
+            <span className="text-gray-500 font-medium">Date: {new Date().toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
           </div>
           <p className="text-gray-600">
-            Address: San Vicente, Gapan City, Nueva Ecija • Emergency Contact: (044) 958-0000
+            Address: San Vicente, Gapan City, Nueva Ecija • Emergency Dispatch Hotline: (044) 958-0000
           </p>
         </div>
 
@@ -119,7 +164,7 @@ export function EmergencyTransferModal({
             <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
               <HeartPulse className="w-3.5 h-3.5 text-rose-500" /> Bedside Vitals Before Departure
             </span>
-            <span className="text-[11px] text-gray-400">
+            <span className="text-[11px] text-gray-400 font-medium">
               {latestVisitLog?.visit_date ? `Logged: ${latestVisitLog.visit_date}` : 'Real-time check required'}
             </span>
           </div>
@@ -194,24 +239,48 @@ export function EmergencyTransferModal({
           </div>
         </div>
 
+        {/* Physical Handover Signatures Block */}
+        <div className="border-t-2 border-gray-900 pt-4 space-y-4">
+          <p className="text-[10px] font-black uppercase tracking-wider text-gray-700">
+            DOH Physical Handover &amp; Endorsement Signatures:
+          </p>
+          <div className="grid grid-cols-3 gap-4 text-center">
+            <div>
+              <div className="border-b border-gray-800 pb-8 mb-1"></div>
+              <p className="text-[10px] font-bold text-gray-900 uppercase">Referring Clinician</p>
+              <p className="text-[9px] text-gray-500">License No. / Clinic Stamp</p>
+            </div>
+            <div>
+              <div className="border-b border-gray-800 pb-8 mb-1"></div>
+              <p className="text-[10px] font-bold text-gray-900 uppercase">Transport Escort</p>
+              <p className="text-[9px] text-gray-500">Departure Time: _______</p>
+            </div>
+            <div>
+              <div className="border-b border-gray-800 pb-8 mb-1"></div>
+              <p className="text-[10px] font-bold text-gray-900 uppercase">Receiving Medical Officer</p>
+              <p className="text-[9px] text-gray-500">Arrival Time: _______</p>
+            </div>
+          </div>
+        </div>
+
         {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-4 border-t border-gray-100">
+        <div className="no-print flex items-center justify-between pt-4 border-t border-gray-100">
           <span className="text-[11px] text-gray-400 font-medium">
-            Requires attending midwife signature upon physical handover.
+            Standard DOH BEmONC Referral Slip Form.
           </span>
           <div className="flex items-center gap-2">
             <Button
               type="button"
               variant="outline"
               onClick={onClose}
-              className="text-xs font-bold rounded-xl h-10 px-4"
+              className="text-xs font-bold rounded-xl h-10 px-4 cursor-pointer"
             >
               Close
             </Button>
             <Button
               type="button"
               onClick={handlePrint}
-              className="bg-gradient-to-r from-red-600 to-rose-600 hover:brightness-105 text-white text-xs font-bold rounded-xl h-10 px-5 gap-2 shadow-md shadow-red-500/20 active:scale-[0.98] transition-all"
+              className="bg-gradient-to-r from-red-600 to-rose-600 hover:brightness-105 text-white text-xs font-bold rounded-xl h-10 px-5 gap-2 shadow-md shadow-red-500/20 active:scale-[0.98] transition-all cursor-pointer"
             >
               <Printer className="w-4 h-4" />
               <span>Print Transfer Slip</span>

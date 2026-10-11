@@ -95,7 +95,12 @@ export async function createPatient(formData) {
   const contact_number = formData.get('contact_number') || null;
   const blood_type = formData.get('blood_type') || null;
   const allergies = formData.get('allergies') || null;
+  const philhealth_number = formData.get('philhealth_number') || null;
   const is_high_risk = formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true';
+
+  const lmp = formData.get('lmp') || null;
+  const gravida = formData.get('gravida') ? parseInt(formData.get('gravida'), 10) : 1;
+  const para = formData.get('para') !== null && formData.get('para') !== '' ? parseInt(formData.get('para'), 10) : 0;
 
   if (!full_name) {
     return { success: false, error: 'Patient full name is required.' };
@@ -111,6 +116,7 @@ export async function createPatient(formData) {
     contact_number,
     blood_type,
     allergies,
+    philhealth_number,
     is_high_risk,
     created_at: new Date().toISOString(),
   };
@@ -127,13 +133,28 @@ export async function createPatient(formData) {
     return { success: false, error: error.message };
   }
 
+  // If LMP is provided, automatically instantiate initial Active Maternal Episode
+  if (lmp) {
+    const edc = new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    await supabaseServer
+      .from('maternal_episodes')
+      .insert({
+        patient_id: patientRow.id,
+        lmp,
+        edc,
+        gravida,
+        para,
+        status: 'Active',
+      });
+  }
+
   // Auto-create a prenatal_records row so modular records work immediately
   await supabaseServer
     .from('prenatal_records')
     .insert({ patient_id: patientRow.id, modular_data: {} });
 
   revalidatePath('/admin/patients');
-  redirect('/admin/patients');
+  redirect(`/admin/patients/${patientRow.id}`);
 }
 
 /**
@@ -158,6 +179,7 @@ export async function updatePatient(formData) {
     contact_number: formData.get('contact_number') || null,
     blood_type: formData.get('blood_type') || null,
     allergies: formData.get('allergies') || null,
+    philhealth_number: formData.get('philhealth_number') || null,
     is_high_risk: formData.get('is_high_risk') === 'on' || formData.get('is_high_risk') === 'true',
   };
 

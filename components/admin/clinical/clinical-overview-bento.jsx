@@ -36,6 +36,7 @@ import { PatientProfileTab } from '@/components/admin/patient-profile-tab';
 import { ModularRecordEditor } from '@/components/admin/modular-record-editor';
 import { PhilHealthMCPCard } from '@/components/admin/clinical/philhealth-mcp-card';
 import { calculateObstetricDates } from '@/lib/clinical-protocols';
+import { usePatientTabs } from '@/components/admin/clinical/patient-tabs-wrapper';
 
 export function ClinicalOverviewBento({
   patient,
@@ -52,6 +53,16 @@ export function ClinicalOverviewBento({
   onSwitchTab
 }) {
   const [showModularEditor, setShowModularEditor] = useState(false);
+  const patientTabs = usePatientTabs();
+
+  // Unified tab switcher supporting both prop callback and Context/URL
+  const handleTabSwitch = (tab) => {
+    if (typeof onSwitchTab === 'function') {
+      onSwitchTab(tab);
+    } else if (patientTabs?.switchTab) {
+      patientTabs.switchTab(tab);
+    }
+  };
 
   // ── Live AOG Calculation from LMP ──────────────────────────────────────────
   const liveObstetric = useMemo(() => {
@@ -117,7 +128,7 @@ export function ClinicalOverviewBento({
     return alerts;
   }, [liveObstetric]);
 
-  // Blood Pressure Classification based on Philippine Clinical Guidelines
+  // Blood Pressure Classification based on Philippine Clinical Guidelines & Pre-eclampsia Triad
   const evaluateBP = (bpStr) => {
     if (!bpStr || typeof bpStr !== 'string') return null;
     const parts = bpStr.split('/');
@@ -126,10 +137,36 @@ export function ClinicalOverviewBento({
     const diastolic = parseInt(parts[1], 10);
     if (isNaN(systolic) || isNaN(diastolic)) return null;
 
+    // Cross-reference with latest urine protein for Pre-eclampsia Triad
+    const urineProtein = (latestLabResult?.urinalysis_protein || '').trim().toLowerCase();
+    const hasProteinuria = ['1+', '2+', '3+', '4+'].includes(urineProtein);
+    const isPreeclampsiaTriad = (systolic >= 140 || diastolic >= 90) && hasProteinuria;
+
+    if (isPreeclampsiaTriad) {
+      return {
+        level: 'critical',
+        hasPing: true,
+        label: `Pre-eclampsia Triad (${latestLabResult.urinalysis_protein} Protein)`,
+        badgeClass: 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse',
+        note: `BP ${systolic}/${diastolic} mmHg + Proteinuria. Urgent spot protein/creatinine & OB-GYN review.`
+      };
+    }
+
+    if (systolic >= 160 || diastolic >= 110) {
+      return {
+        level: 'critical',
+        hasPing: true,
+        label: 'Hypertensive Emergency (≥160/110)',
+        badgeClass: 'bg-red-600 text-white border-red-700 shadow-sm animate-pulse',
+        note: 'Imminent eclampsia risk. Immediate medical stabilization required.'
+      };
+    }
+
     if (systolic >= 140 || diastolic >= 90) {
       return {
         level: 'danger',
-        label: 'Elevated / High Risk',
+        hasPing: true,
+        label: 'Elevated BP / Stage 1 High Risk',
         badgeClass: 'bg-red-100 text-red-700 border-red-200',
         note: 'Monitor for pre-eclampsia & protein.'
       };
@@ -137,6 +174,7 @@ export function ClinicalOverviewBento({
     if (systolic >= 130 || diastolic >= 80) {
       return {
         level: 'warning',
+        hasPing: false,
         label: 'Borderline Elevated',
         badgeClass: 'bg-amber-100 text-amber-800 border-amber-200',
         note: 'Requires dietary & BP monitoring.'
@@ -144,6 +182,7 @@ export function ClinicalOverviewBento({
     }
     return {
       level: 'normal',
+      hasPing: false,
       label: 'Normal / Healthy',
       badgeClass: 'bg-emerald-100 text-emerald-700 border-emerald-200',
       note: 'Within standard target range.'
@@ -324,7 +363,7 @@ export function ClinicalOverviewBento({
               {latestVisitLog ? (
                 <button
                   type="button"
-                  onClick={() => onSwitchTab?.('clinical')}
+                  onClick={() => handleTabSwitch('clinical')}
                   className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 hover:underline cursor-pointer"
                 >
                   <span>History</span>
@@ -339,15 +378,25 @@ export function ClinicalOverviewBento({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   {/* Blood Pressure Widget */}
                   <div className={`p-3.5 rounded-2xl border transition-all ${
-                    bpEval?.level === 'danger'
+                    bpEval?.level === 'critical'
+                      ? 'bg-red-50 border-red-300 ring-2 ring-red-200/80 text-red-950 shadow-xs'
+                      : bpEval?.level === 'danger'
                       ? 'bg-red-50/80 border-red-200 text-red-900'
                       : bpEval?.level === 'warning'
                       ? 'bg-amber-50/80 border-amber-200 text-amber-900'
                       : 'bg-slate-50/80 border-slate-200/80 text-gray-900'
                   }`}>
-                    <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block mb-1">
-                      Blood Pressure
-                    </span>
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-400 block">
+                        Blood Pressure
+                      </span>
+                      {bpEval?.hasPing && (
+                        <span className="relative flex h-2 w-2" title="Hypertension Alert">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
+                        </span>
+                      )}
+                    </div>
                     <div className="flex items-baseline gap-1">
                       <span className="text-2xl font-black tracking-tight">{latestVisitLog.bp || '—'}</span>
                       <span className="text-[11px] text-gray-500 font-semibold">mmHg</span>
@@ -457,7 +506,7 @@ export function ClinicalOverviewBento({
                 </p>
                 <Button
                   type="button"
-                  onClick={() => onSwitchTab?.('clinical')}
+                  onClick={() => handleTabSwitch('clinical')}
                   size="sm"
                   className="mt-3 bg-rose-500 hover:bg-rose-600 text-white rounded-xl text-xs font-bold h-8 px-4 gap-1.5"
                 >
@@ -475,7 +524,7 @@ export function ClinicalOverviewBento({
             </span>
             <button
               type="button"
-              onClick={() => onSwitchTab?.('clinical')}
+              onClick={() => handleTabSwitch('clinical')}
               className="text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 hover:underline cursor-pointer"
             >
               <span>+ Record New Checkup</span>
@@ -510,7 +559,7 @@ export function ClinicalOverviewBento({
               {latestLabResult ? (
                 <button
                   type="button"
-                  onClick={() => onSwitchTab?.('labs')}
+                  onClick={() => handleTabSwitch('labs')}
                   className="text-xs font-bold text-teal-600 hover:text-teal-700 flex items-center gap-1 hover:underline cursor-pointer"
                 >
                   <span>All Labs</span>
@@ -587,7 +636,7 @@ export function ClinicalOverviewBento({
                 </p>
                 <Button
                   type="button"
-                  onClick={() => onSwitchTab?.('labs')}
+                  onClick={() => handleTabSwitch('labs')}
                   size="sm"
                   className="mt-3 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold h-8 px-4 gap-1.5"
                 >
@@ -605,7 +654,7 @@ export function ClinicalOverviewBento({
             </span>
             <button
               type="button"
-              onClick={() => onSwitchTab?.('labs')}
+              onClick={() => handleTabSwitch('labs')}
               className="text-xs font-bold text-teal-700 hover:text-teal-800 flex items-center gap-1 hover:underline cursor-pointer"
             >
               <span>+ Record Lab Panel</span>
@@ -710,7 +759,7 @@ export function ClinicalOverviewBento({
             </span>
             <button
               type="button"
-              onClick={() => onSwitchTab?.('postpartum')}
+              onClick={() => handleTabSwitch('postpartum')}
               className="text-xs font-bold text-indigo-600 hover:text-indigo-700 flex items-center gap-1 hover:underline cursor-pointer"
             >
               <span>View Postpartum &amp; Newborn Care</span>

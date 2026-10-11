@@ -80,6 +80,24 @@ export function PrintableClinicalRecord({
 
   return (
     <div className="w-full max-w-[210mm] mx-auto bg-white text-gray-900 font-sans p-6 sm:p-10 print:p-0 print:max-w-none text-xs leading-normal">
+      {/* Strict Print Media Page Layout & Colors */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @page {
+          size: A4 portrait;
+          margin: 8mm 10mm;
+        }
+        @media print {
+          body {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+          .avoid-break {
+            break-inside: avoid;
+            page-break-inside: avoid;
+          }
+        }
+      `}} />
+
       {/* ── CLINICAL HEADER & BRANDING ── */}
       <header className="border-b-2 border-gray-900 pb-4 mb-5 avoid-break">
         <div className="flex items-center justify-between gap-4">

@@ -24,6 +24,7 @@ import { PostpartumTabContent } from '@/components/admin/clinical/postpartum-tab
 import { PatientTabsWrapper } from '@/components/admin/clinical/patient-tabs-wrapper';
 import { BreadcrumbTrail } from '@/components/admin/shared/breadcrumb-trail';
 import { Baby, FlaskConical } from 'lucide-react';
+import { DeleteAttachmentButton } from '@/components/admin/patients/delete-attachment-button';
 import Link from 'next/link';
 
 export default async function PatientDetailPage({ params, searchParams }) {
@@ -398,16 +399,11 @@ export default async function PatientDetailPage({ params, searchParams }) {
                               className="p-1.5 bg-gray-50 text-gray-400 hover:bg-rose-50 hover:text-rose-600 rounded-lg transition-colors">
                               <ExternalLink className="w-4 h-4" />
                             </a>
-                            <form action={deleteAttachment}>
-                              <input type="hidden" name="id" value={file.id} />
-                              <input type="hidden" name="file_url" value={file.file_url} />
-                              <input type="hidden" name="patient_id" value={id} />
-                              <Button type="submit" variant="ghost"
-                                className="p-1.5 h-auto text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg"
-                                onClick={(e) => { if (!window.confirm('Delete this file permanently?')) e.preventDefault(); }}>
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </form>
+                            <DeleteAttachmentButton 
+                              attachmentId={file.id} 
+                              fileUrl={file.file_url} 
+                              patientId={id} 
+                            />
                           </div>
                         </div>
                       </div>

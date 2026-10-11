@@ -93,6 +93,16 @@
   - Added blood type (`🩸 Type O+`) and age (`24 yo`) clinical identifiers to Kanban patient cards.
   - Unified search state across toolbar and Kanban board with active lane breakdown pills (`Waiting: X • Vitals: Y • Consult: Z • Done: W`).
   - Added keyboard Escape dismissal, backdrop dismissal, and universal 58mm/80mm thermal receipt printer CSS in `QuickWalkInModal`.
+- **Priority 6: Module 3 Patient Directory & 5-Tab EMR Usability Overhaul (Completed Oct 2026):**
+  - **LMP & Maternal Episode Continuity:** Fixed critical bug in `app/actions.js` (`createPatient`) where LMP was discarded. Now automatically calculates Naegele's EDC (+280 days), provisions initial active `maternal_episodes` record, and redirects directly to `/admin/patients/${id}`.
+  - **New Patient Intake Form Ergonomics (`components/admin/patients/new-patient-form.jsx`):** Real-time age derivation from DOB, live AOG & EDC Naegele preview banner, G/P steppers, 11-digit mobile masking, PhilHealth PIN, and `useTransition` double-submission lock.
+  - **Patient Tabs Context & Bento Card Quick Actions:** Created `PatientTabsContext` in `patient-tabs-wrapper.jsx` and connected all Bento buttons in `clinical-overview-bento.jsx` to switch tabs programmatically without full-page reloads.
+  - **Pre-eclampsia Risk Triad CDS:** Upgraded BP evaluation in Bento overview to detect triad of BP $\ge 140/90$ + urine protein with live pulse indicator and Hypertensive Emergency ($\ge 160/110$) guidance.
+  - **DOH Maternal Census CSV Export & Hotkey (`patient-directory-client.jsx`):** Added 1-click UTF-8 BOM CSV export of maternal directory cohort with Gravida, Para, LMP, EDC, AOG, Trimester, and Risk status. Attached `/` hotkey for instant search bar focus.
+  - **Accelerated Lab Entry (`prenatal-labs-section.jsx`):** 1-click *"⚡ Auto-fill Normal Defaults"* macro, replaced blocking `window.confirm` and `alert` with inline confirmation and error banner, added Escape/backdrop modal dismissal.
+  - **DOH Postpartum & Newborn Protocols (`postpartum-tab-content.jsx`):** 1-click *"⚡ Apply DOH Protocols"* macro for all 4 Unang Yakap steps, Vit K, eye prophylaxis, and birth dose vaccines. Integrated dynamic Grams-to-Kg converter on birth weight.
+  - **Strict Print Isolation (`emergency-transfer-modal.jsx` & `printable-clinical-record.jsx`):** Isolated DOH Obstetric Transfer Slip with `@media print` CSS and physical handover signature blocks. Injected `@page { size: A4 portrait; margin: 8mm 10mm; }` on printable clinical record.
+  - **Non-blocking Document Deletion (`delete-attachment-button.jsx`):** Extracted client component with inline confirmation state, eliminating `window.confirm` and server component hydration warnings.
 
 ---
 

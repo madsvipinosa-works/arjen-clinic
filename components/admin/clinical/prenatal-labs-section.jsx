@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useTransition, useMemo } from 'react';
+import { useState, useTransition, useMemo, useEffect } from 'react';
 import { 
   FlaskConical, Plus, Trash2, AlertTriangle, ShieldAlert,
-  CheckCircle2, Clock, Calendar, FileText, Activity, AlertCircle, Sparkles
+  CheckCircle2, Clock, Calendar, FileText, Activity, AlertCircle, Sparkles, X
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,8 @@ export function PrenatalLabsSection({
 }) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPending, startTransition] = useTransition();
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [modalError, setModalError] = useState('');
 
   // Modal Form State for real-time anomaly detection
   const [testDate, setTestDate] = useState(getClinicTodayDateString());
@@ -40,6 +42,36 @@ export function PrenatalLabsSection({
   const [ogtt2, setOgtt2] = useState('');
   const [ultrasound, setUltrasound] = useState('');
   const [remarks, setRemarks] = useState('');
+
+  // Keyboard shortcut: Escape closes modal
+  useEffect(() => {
+    if (!isModalOpen) return;
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setIsModalOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isModalOpen]);
+
+  // Macro: 1-Click Normal Reference Range Defaults for fast routine entry
+  const handleFillNormalDefaults = () => {
+    setHb('12.0');
+    setHct('37.0');
+    if (!bloodType && patientBloodType) setBloodType(patientBloodType);
+    setProtein('Negative');
+    setGlucose('Negative');
+    setPusCells('0-2');
+    setRbc('0-1');
+    setHbsag('Non-Reactive');
+    setVdrl('Non-Reactive');
+    setHiv('Non-Reactive');
+    setFbs('82.0');
+    setOgtt1('125.0');
+    setOgtt2('110.0');
+    setRemarks('Routine prenatal lab panel within normal clinical limits.');
+  };
 
   // Live anomaly calculation as staff types into form
   const liveEvaluation = useMemo(() => {
@@ -61,17 +93,22 @@ export function PrenatalLabsSection({
   const latestLab = labResults && labResults.length > 0 ? labResults[0] : null;
 
   const handleDelete = (id) => {
-    if (!window.confirm('Delete this laboratory result? This action cannot be undone.')) return;
+    setConfirmDeleteId(id);
+  };
+
+  const handleConfirmDelete = (id) => {
     const fd = new FormData();
     fd.append('id', id);
     fd.append('patient_id', patientId);
     startTransition(async () => {
       await deletePrenatalLabResult(fd);
+      setConfirmDeleteId(null);
     });
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
+    setModalError('');
     const fd = new FormData(e.currentTarget);
     startTransition(async () => {
       const res = await addPrenatalLabResult(fd);
@@ -88,7 +125,7 @@ export function PrenatalLabsSection({
         setUltrasound('');
         setRemarks('');
       } else {
-        alert(res?.error || 'Failed to record lab result.');
+        setModalError(res?.error || 'Failed to record lab result.');
       }
     });
   };
@@ -269,16 +306,43 @@ export function PrenatalLabsSection({
                         )}
                       </div>
 
-                      <Button 
-                        type="button" 
-                        variant="ghost" 
-                        size="sm"
-                        disabled={isPending}
-                        onClick={() => handleDelete(result.id)}
-                        className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
+                      {confirmDeleteId === result.id ? (
+                        <div className="flex items-center gap-1.5 bg-red-50 p-1 rounded-xl border border-red-200 animate-in fade-in">
+                          <span className="text-[10px] font-bold text-red-700 pl-1">Delete lab?</span>
+                          <Button 
+                            type="button" 
+                            variant="destructive" 
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => handleConfirmDelete(result.id)}
+                            className="h-6 px-2 text-[10px] font-bold rounded-lg cursor-pointer"
+                          >
+                            Yes
+                          </Button>
+                          <Button 
+                            type="button" 
+                            variant="ghost" 
+                            size="sm"
+                            disabled={isPending}
+                            onClick={() => setConfirmDeleteId(null)}
+                            className="h-6 px-2 text-[10px] font-bold text-gray-500 hover:text-gray-700 rounded-lg cursor-pointer"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      ) : (
+                        <Button 
+                          type="button" 
+                          variant="ghost" 
+                          size="sm"
+                          disabled={isPending}
+                          onClick={() => handleDelete(result.id)}
+                          className="h-8 w-8 p-0 text-gray-400 hover:text-red-600 hover:bg-red-50 cursor-pointer"
+                          title="Delete lab record"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      )}
                     </div>
 
                     {/* Test Breakdown Grid */}
@@ -358,10 +422,15 @@ export function PrenatalLabsSection({
 
       {/* ── MODAL: LOG NEW PRENATAL LAB RESULTS ── */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+        <div 
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setIsModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+        >
           <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto border border-gray-100 p-6 sm:p-8 space-y-6">
             
-            <div className="flex items-center justify-between pb-4 border-b border-gray-100">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-100 gap-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-2xl bg-rose-500 text-white flex items-center justify-center shadow-md shadow-rose-200">
                   <FlaskConical className="w-5 h-5" />
@@ -371,14 +440,36 @@ export function PrenatalLabsSection({
                   <p className="text-xs text-gray-500">Structured data with automated reference range checks.</p>
                 </div>
               </div>
-              <button 
-                type="button" 
-                onClick={() => setIsModalOpen(false)}
-                className="text-gray-400 hover:text-gray-700 text-sm font-bold p-2"
-              >
-                ✕
-              </button>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleFillNormalDefaults}
+                  className="rounded-xl border-emerald-200 text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 text-xs font-bold gap-1.5 h-8 cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>⚡ Normal Defaults</span>
+                </Button>
+
+                <button 
+                  type="button" 
+                  onClick={() => setIsModalOpen(false)}
+                  className="text-gray-400 hover:text-gray-700 text-sm font-bold p-1.5 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer"
+                  title="Close modal (Esc)"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
+
+            {modalError && (
+              <div className="p-3.5 rounded-2xl bg-red-50 border border-red-200 text-xs text-red-700 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
+                <span>{modalError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-6">
               <input type="hidden" name="patient_id" value={patientId} />

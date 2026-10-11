@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useTransition } from 'react';
+import React, { useState, useTransition, useEffect } from 'react';
 import { 
   Baby, Heart, CalendarDays, CheckCircle2, ShieldCheck, 
   AlertTriangle, Sparkles, Syringe, Eye, Award, Pencil, 
@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { checkDOHNewbornProtocols } from '@/lib/clinical-protocols';
+import { getClinicTodayDateString } from '@/lib/utils';
 import { createPostpartumRecord, updatePostpartumRecord } from '@/app/actions';
 
 export function PostpartumTabContent({
@@ -29,6 +30,81 @@ export function PostpartumTabContent({
   const currentRecord = postpartumRecords.find((r) => r.id === selectedRecordId) || postpartumRecord || null;
   const isUpdate = !!currentRecord;
   const babyVitals = currentRecord?.baby_vitals || {};
+
+  // Controlled form states for instant DOH protocol macro fill
+  const [deliveryDate, setDeliveryDate] = useState(currentRecord?.delivery_date || getClinicTodayDateString());
+  const [deliveryType, setDeliveryType] = useState(currentRecord?.delivery_type || 'Vaginal');
+  const [feedingMethod, setFeedingMethod] = useState(currentRecord?.feeding_method || 'Breastfeeding');
+  const [skinToSkin, setSkinToSkin] = useState(currentRecord?.skin_to_skin_initiated ?? true);
+  const [cordCare, setCordCare] = useState(currentRecord?.cord_care_done ?? true);
+  const [earlyBf, setEarlyBf] = useState(currentRecord?.early_breastfeeding_initiated ?? true);
+  const [vitK, setVitK] = useState(currentRecord?.vit_k_given ?? false);
+  const [eyeProp, setEyeProp] = useState(currentRecord?.eye_prophylaxis_given ?? false);
+  const [hepb, setHepb] = useState(currentRecord?.hepb_given ?? false);
+  const [hepbDate, setHepbDate] = useState(currentRecord?.hepb_date || '');
+  const [bcg, setBcg] = useState(currentRecord?.bcg_given ?? false);
+  const [bcgDate, setBcgDate] = useState(currentRecord?.bcg_date || '');
+  const [weightKg, setWeightKg] = useState(babyVitals.weight_kg ? String(babyVitals.weight_kg) : '');
+  const [weightGrams, setWeightGrams] = useState(babyVitals.weight_kg ? String(Math.round(babyVitals.weight_kg * 1000)) : '');
+  const [nbsStatus, setNbsStatus] = useState(currentRecord?.nbs_status || 'Pending');
+  const [hearingStatus, setHearingStatus] = useState(currentRecord?.hearing_screening_status || 'Pending');
+
+  // Synchronize state when selected delivery record changes
+  useEffect(() => {
+    if (currentRecord) {
+      setDeliveryDate(currentRecord.delivery_date || getClinicTodayDateString());
+      setDeliveryType(currentRecord.delivery_type || 'Vaginal');
+      setFeedingMethod(currentRecord.feeding_method || 'Breastfeeding');
+      setSkinToSkin(currentRecord.skin_to_skin_initiated ?? true);
+      setCordCare(currentRecord.cord_care_done ?? true);
+      setEarlyBf(currentRecord.early_breastfeeding_initiated ?? true);
+      setVitK(currentRecord.vit_k_given ?? false);
+      setEyeProp(currentRecord.eye_prophylaxis_given ?? false);
+      setHepb(currentRecord.hepb_given ?? false);
+      setHepbDate(currentRecord.hepb_date || '');
+      setBcg(currentRecord.bcg_given ?? false);
+      setBcgDate(currentRecord.bcg_date || '');
+      const wKg = babyVitals.weight_kg ? String(babyVitals.weight_kg) : '';
+      setWeightKg(wKg);
+      setWeightGrams(wKg ? String(Math.round(parseFloat(wKg) * 1000)) : '');
+      setNbsStatus(currentRecord.nbs_status || 'Pending');
+      setHearingStatus(currentRecord.hearing_screening_status || 'Pending');
+    } else {
+      setDeliveryDate(getClinicTodayDateString());
+      setDeliveryType('Vaginal');
+      setFeedingMethod('Breastfeeding');
+      setSkinToSkin(true);
+      setCordCare(true);
+      setEarlyBf(true);
+      setVitK(false);
+      setEyeProp(false);
+      setHepb(false);
+      setHepbDate('');
+      setBcg(false);
+      setBcgDate('');
+      setWeightKg('');
+      setWeightGrams('');
+      setNbsStatus('Pending');
+      setHearingStatus('Pending');
+    }
+  }, [currentRecord]);
+
+  // Macro: 1-Click Standard DOH BEmONC & EINC (Unang Yakap) Protocols
+  const handleApplyStandardEINCProtocols = () => {
+    const today = getClinicTodayDateString();
+    setSkinToSkin(true);
+    setCordCare(true);
+    setEarlyBf(true);
+    setVitK(true);
+    setEyeProp(true);
+    setHepb(true);
+    setHepbDate(today);
+    setBcg(true);
+    setBcgDate(today);
+    setFeedingMethod('Breastfeeding');
+    setHearingStatus('Passed');
+    setNbsStatus('Pending');
+  };
 
   // Calculate DOH Compliance Metrics
   const compliance = checkDOHNewbornProtocols(currentRecord || {});
@@ -186,13 +262,28 @@ export function PostpartumTabContent({
       <Sheet open={isEditing} onOpenChange={setIsEditing}>
         <SheetContent side="right" className="w-full sm:max-w-2xl overflow-y-auto bg-white/95 backdrop-blur-xl border-l border-rose-100 p-0 shadow-2xl">
           <SheetHeader className="p-6 border-b border-gray-100 bg-white/80 sticky top-0 z-10 backdrop-blur-md">
-            <SheetTitle className="text-lg font-black text-gray-900 tracking-tight flex items-center gap-2">
-              <Pencil className="w-5 h-5 text-rose-500" />
-              {isUpdate ? 'Edit Postpartum & Newborn Record' : 'Record New Delivery & Newborn Care'}
-            </SheetTitle>
-            <SheetDescription className="text-xs text-gray-500">
-              Fulfills PhilHealth Maternal & Newborn Care Package (MCP / NCP) statutory data requirements.
-            </SheetDescription>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <SheetTitle className="text-lg font-black text-gray-900 tracking-tight flex items-center gap-2">
+                  <Pencil className="w-5 h-5 text-rose-500" />
+                  {isUpdate ? 'Edit Postpartum & Newborn Record' : 'Record New Delivery & Newborn Care'}
+                </SheetTitle>
+                <SheetDescription className="text-xs text-gray-500">
+                  Fulfills PhilHealth Maternal & Newborn Care Package (MCP / NCP) statutory data requirements.
+                </SheetDescription>
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleApplyStandardEINCProtocols}
+                className="rounded-xl border-emerald-200 text-emerald-700 bg-emerald-50/70 hover:bg-emerald-100 text-xs font-bold gap-1.5 h-8 shrink-0 cursor-pointer self-start sm:self-auto"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                <span>⚡ Apply DOH Protocols</span>
+              </Button>
+            </div>
           </SheetHeader>
           
           <div className="p-6 pb-24">
@@ -217,7 +308,8 @@ export function PostpartumTabContent({
                     name="delivery_date"
                     type="date"
                     required
-                    defaultValue={currentRecord?.delivery_date ?? ''}
+                    value={deliveryDate}
+                    onChange={(e) => setDeliveryDate(e.target.value)}
                     className="h-10 rounded-xl"
                   />
                 </div>
@@ -227,7 +319,8 @@ export function PostpartumTabContent({
                   <select
                     id="delivery_type"
                     name="delivery_type"
-                    defaultValue={currentRecord?.delivery_type ?? 'Vaginal'}
+                    value={deliveryType}
+                    onChange={(e) => setDeliveryType(e.target.value)}
                     className="flex h-10 w-full rounded-xl border border-input bg-white px-3 py-1 text-sm shadow-xs focus:ring-1 focus:ring-rose-500 outline-none"
                   >
                     <option value="Vaginal">Spontaneous Vaginal Delivery (NSVD)</option>
@@ -241,7 +334,8 @@ export function PostpartumTabContent({
                   <select
                     id="feeding_method"
                     name="feeding_method"
-                    defaultValue={currentRecord?.feeding_method ?? 'Breastfeeding'}
+                    value={feedingMethod}
+                    onChange={(e) => setFeedingMethod(e.target.value)}
                     className="flex h-10 w-full rounded-xl border border-input bg-white px-3 py-1 text-sm shadow-xs focus:ring-1 focus:ring-rose-500 outline-none"
                   >
                     <option value="Breastfeeding">Exclusive Breastfeeding (EBF)</option>
@@ -276,7 +370,8 @@ export function PostpartumTabContent({
                     type="checkbox"
                     name="skin_to_skin_initiated"
                     value="true"
-                    defaultChecked={currentRecord?.skin_to_skin_initiated ?? true}
+                    checked={skinToSkin}
+                    onChange={(e) => setSkinToSkin(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-rose-600 rounded text-rose-600"
                   />
                   <div>
@@ -290,7 +385,8 @@ export function PostpartumTabContent({
                     type="checkbox"
                     name="cord_care_done"
                     value="true"
-                    defaultChecked={currentRecord?.cord_care_done ?? true}
+                    checked={cordCare}
+                    onChange={(e) => setCordCare(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-rose-600 rounded text-rose-600"
                   />
                   <div>
@@ -304,7 +400,8 @@ export function PostpartumTabContent({
                     type="checkbox"
                     name="early_breastfeeding_initiated"
                     value="true"
-                    defaultChecked={currentRecord?.early_breastfeeding_initiated ?? true}
+                    checked={earlyBf}
+                    onChange={(e) => setEarlyBf(e.target.checked)}
                     className="w-4 h-4 mt-0.5 accent-rose-600 rounded text-rose-600"
                   />
                   <div>
@@ -324,20 +421,56 @@ export function PostpartumTabContent({
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="space-y-1.5">
-                  <Label htmlFor="baby_weight_kg" className="text-xs font-bold text-gray-700">Birth Weight (kg) *</Label>
-                  <Input
-                    id="baby_weight_kg"
-                    name="baby_weight_kg"
-                    type="number"
-                    step="0.001"
-                    min="0.5"
-                    max="9.999"
-                    maxLength={5}
-                    placeholder="e.g. 3.250"
-                    defaultValue={babyVitals.weight_kg ?? ''}
-                    className="h-10 rounded-xl"
-                    required
-                  />
+                  <div className="flex items-center justify-between">
+                    <Label htmlFor="baby_weight_kg" className="text-xs font-bold text-gray-700">Birth Weight *</Label>
+                    {weightGrams && (
+                      <span className="text-[10px] text-gray-400 font-mono font-bold">
+                        {weightGrams} g
+                      </span>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Input
+                      id="baby_weight_kg"
+                      name="baby_weight_kg"
+                      type="number"
+                      step="0.001"
+                      min="0.5"
+                      max="9.999"
+                      value={weightKg}
+                      onChange={(e) => {
+                        setWeightKg(e.target.value);
+                        const val = parseFloat(e.target.value);
+                        setWeightGrams(!isNaN(val) ? String(Math.round(val * 1000)) : '');
+                      }}
+                      placeholder="e.g. 3.250"
+                      className="h-10 rounded-xl pr-10"
+                      required
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 pointer-events-none">
+                      kg
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1.5 pt-0.5">
+                    <span className="text-[10px] text-gray-400">Scale in grams?</span>
+                    <input
+                      type="number"
+                      placeholder="e.g. 3200"
+                      value={weightGrams}
+                      onChange={(e) => {
+                        const g = e.target.value;
+                        setWeightGrams(g);
+                        const numG = parseFloat(g);
+                        if (!isNaN(numG) && numG > 0) {
+                          setWeightKg((numG / 1000).toFixed(3));
+                        } else {
+                          setWeightKg('');
+                        }
+                      }}
+                      className="h-6 w-20 text-[11px] rounded-lg border border-gray-200 px-1.5 bg-gray-50/70 font-mono"
+                    />
+                    <span className="text-[10px] text-gray-400">g</span>
+                  </div>
                 </div>
 
                 <div className="space-y-1.5">
@@ -398,7 +531,8 @@ export function PostpartumTabContent({
                     type="checkbox"
                     name="vit_k_given"
                     value="true"
-                    defaultChecked={currentRecord?.vit_k_given ?? false}
+                    checked={vitK}
+                    onChange={(e) => setVitK(e.target.checked)}
                     className="w-4 h-4 accent-rose-600 rounded text-rose-600"
                   />
                   <div>
@@ -412,7 +546,8 @@ export function PostpartumTabContent({
                     type="checkbox"
                     name="eye_prophylaxis_given"
                     value="true"
-                    defaultChecked={currentRecord?.eye_prophylaxis_given ?? false}
+                    checked={eyeProp}
+                    onChange={(e) => setEyeProp(e.target.checked)}
                     className="w-4 h-4 accent-rose-600 rounded text-rose-600"
                   />
                   <div>
@@ -430,7 +565,8 @@ export function PostpartumTabContent({
                       type="checkbox"
                       name="hepb_given"
                       value="true"
-                      defaultChecked={currentRecord?.hepb_given ?? false}
+                      checked={hepb}
+                      onChange={(e) => setHepb(e.target.checked)}
                       className="w-4 h-4 accent-rose-600 rounded text-rose-600"
                     />
                     <span className="text-xs font-bold text-gray-900">Hepatitis B Birth Dose (&lt; 24h)</span>
@@ -440,7 +576,8 @@ export function PostpartumTabContent({
                     <Input 
                       name="hepb_date" 
                       type="date" 
-                      defaultValue={currentRecord?.hepb_date ?? ''}
+                      value={hepbDate}
+                      onChange={(e) => setHepbDate(e.target.value)}
                       className="h-8 text-xs bg-white rounded-lg" 
                     />
                   </div>
@@ -452,7 +589,8 @@ export function PostpartumTabContent({
                       type="checkbox"
                       name="bcg_given"
                       value="true"
-                      defaultChecked={currentRecord?.bcg_given ?? false}
+                      checked={bcg}
+                      onChange={(e) => setBcg(e.target.checked)}
                       className="w-4 h-4 accent-rose-600 rounded text-rose-600"
                     />
                     <span className="text-xs font-bold text-gray-900">BCG Vaccine (0.05 mL ID)</span>
@@ -462,7 +600,8 @@ export function PostpartumTabContent({
                     <Input 
                       name="bcg_date" 
                       type="date" 
-                      defaultValue={currentRecord?.bcg_date ?? ''}
+                      value={bcgDate}
+                      onChange={(e) => setBcgDate(e.target.value)}
                       className="h-8 text-xs bg-white rounded-lg" 
                     />
                   </div>
@@ -495,7 +634,8 @@ export function PostpartumTabContent({
                   <Label className="text-xs font-bold text-gray-700">NBS Status</Label>
                   <select
                     name="nbs_status"
-                    defaultValue={currentRecord?.nbs_status ?? 'Pending'}
+                    value={nbsStatus}
+                    onChange={(e) => setNbsStatus(e.target.value)}
                     className="flex h-10 w-full rounded-xl border border-input bg-white px-3 py-1 text-sm shadow-xs focus:ring-1 focus:ring-rose-500 outline-none"
                   >
                     <option value="Pending">Pending Collection</option>
@@ -510,7 +650,8 @@ export function PostpartumTabContent({
                 <Label className="text-xs font-bold text-gray-700">Newborn Hearing Screening (RA 9709)</Label>
                 <select
                   name="hearing_screening_status"
-                  defaultValue={currentRecord?.hearing_screening_status ?? 'Pending'}
+                  value={hearingStatus}
+                  onChange={(e) => setHearingStatus(e.target.value)}
                   className="flex h-10 w-full sm:max-w-xs rounded-xl border border-input bg-white px-3 py-1 text-sm shadow-xs focus:ring-1 focus:ring-rose-500 outline-none"
                 >
                   <option value="Pending">Pending Screening</option>
