@@ -1,12 +1,13 @@
 'use client';
 
-import { useEffect, useRef, useState, useTransition } from 'react';
+import React, { useEffect, useRef, useState, useTransition } from 'react';
 import { createClient } from '@/utils/supabase/client';
-import { Send, MessageSquare, Loader2, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Send, MessageSquare, Loader2, AlertTriangle, ShieldCheck, CheckCheck, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { formatRoleBadge } from '@/lib/rbac';
 import { sendConsultationMessage } from '@/app/actions';
+import { formatRelativeConsultationTime, formatMessageDateDivider } from '@/lib/utils';
 
 /**
  * ConsultationThread
@@ -99,69 +100,112 @@ export function ConsultationThread({
       
       {/* Patient Emergency Triage Disclaimer */}
       {!isStaffViewing && !compact && (
-        <div className="bg-amber-50/90 border-b border-amber-200 px-4 py-2.5 flex items-center gap-2.5 text-xs text-amber-900">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>
-            <strong>Non-Emergency Advisory:</strong> This teleconsultation chat is for routine advice. If you experience severe bleeding, severe abdominal pain, or your water breaks, go to AR-JEN Clinic immediately.
-          </span>
+        <div className="bg-amber-50/95 border-b border-amber-200 px-4 py-2.5 flex items-center justify-between gap-3 text-xs text-amber-900 shadow-2xs">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>Non-Emergency Advisory:</strong> This teleconsultation chat is for routine advice. If you experience severe bleeding, severe abdominal pain, or your water breaks, go to AR-JEN Clinic immediately.
+            </span>
+          </div>
+          <a
+            href="tel:09171234567"
+            className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-[11px] shrink-0 transition-colors shadow-2xs"
+            title="Call Clinic Emergency Front Desk"
+          >
+            <Phone className="w-3 h-3" />
+            <span>Clinic Hotline</span>
+          </a>
         </div>
       )}
 
       {/* Messages List */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50/30 scrollbar-thin scrollbar-thumb-rose-100">
         {messages.length > 0 ? (
-          messages.map((msg) => {
+          messages.map((msg, index) => {
             const isMine = msg.sender_role === senderRole;
             const isMsgStaff = ['admin', 'doctor', 'midwife', 'nurse', 'staff'].includes(msg.sender_role);
             const roleBadge = formatRoleBadge(msg.sender_role);
 
+            // Calculate date dividers
+            const prevMsg = index > 0 ? messages[index - 1] : null;
+            const prevDivider = prevMsg ? formatMessageDateDivider(prevMsg.created_at) : null;
+            const currentDivider = formatMessageDateDivider(msg.created_at);
+            const showDivider = !prevMsg || (prevDivider !== currentDivider);
+
             return (
-              <div key={msg.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
-                <div className={`max-w-[85%] sm:max-w-[75%] flex items-end gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
-                  
-                  {/* Avatar */}
-                  <div className={`w-8 h-8 rounded-2xl flex-shrink-0 flex items-center justify-center text-[10px] font-black shadow-sm ${
-                    isMsgStaff ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-700'
-                  }`}>
-                    {isMsgStaff ? (roleBadge.shortLabel?.charAt(0) || 'S') : 'PT'}
-                  </div>
-
-                  {/* Bubble Container */}
-                  <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
-                    
-                    {/* Header info */}
-                    <div className="flex items-center gap-1.5 mb-1 px-1">
-                      <span className="text-[11px] font-bold text-gray-700">
-                        {isMsgStaff ? (msg.sender_name || 'Clinic Clinician') : (msg.sender_name || 'Patient')}
-                      </span>
-                      <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${roleBadge.badgeClass}`}>
-                        {roleBadge.shortLabel}
-                      </span>
-                    </div>
-
-                    {/* Bubble Content */}
-                    <div className={`px-4 py-3 rounded-2xl text-xs sm:text-sm font-medium shadow-xs leading-relaxed ${
-                      isMine
-                        ? 'bg-rose-500 text-white rounded-br-xs'
-                        : msg.is_flagged_urgent
-                        ? 'bg-red-50 text-red-900 border border-red-200 rounded-bl-xs'
-                        : 'bg-white border border-gray-200 text-gray-800 rounded-bl-xs'
-                    } ${msg.id?.startsWith('optimistic') ? 'opacity-70' : ''}`}>
-                      {msg.is_flagged_urgent && !isMsgStaff && (
-                        <div className="flex items-center gap-1 font-bold text-red-700 text-[10px] uppercase tracking-wider mb-1">
-                          <AlertTriangle className="w-3 h-3" /> Potential Danger Sign Flagged
-                        </div>
-                      )}
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
-                    </div>
-
-                    <span className="text-[10px] font-semibold text-gray-400 mt-1 font-mono">
-                      {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              <React.Fragment key={msg.id}>
+                {showDivider && currentDivider && (
+                  <div className="flex items-center justify-center my-3 select-none">
+                    <div className="h-px bg-gray-200/80 flex-1 max-w-[100px]" />
+                    <span className="mx-3 px-3 py-0.5 rounded-full bg-white border border-gray-200 text-[10px] font-bold text-gray-500 uppercase tracking-wider shadow-2xs">
+                      {currentDivider}
                     </span>
+                    <div className="h-px bg-gray-200/80 flex-1 max-w-[100px]" />
                   </div>
+                )}
 
+                <div className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                  <div className={`max-w-[85%] sm:max-w-[75%] flex items-end gap-2 ${isMine ? 'flex-row-reverse' : 'flex-row'}`}>
+                    
+                    {/* Avatar */}
+                    <div className={`w-8 h-8 rounded-2xl flex-shrink-0 flex items-center justify-center text-[10px] font-black shadow-sm ${
+                      isMsgStaff ? 'bg-rose-500 text-white' : 'bg-slate-200 text-slate-700'
+                    }`}>
+                      {isMsgStaff ? (roleBadge.shortLabel?.charAt(0) || 'S') : 'PT'}
+                    </div>
+
+                    {/* Bubble Container */}
+                    <div className={`flex flex-col ${isMine ? 'items-end' : 'items-start'}`}>
+                      
+                      {/* Header info */}
+                      <div className="flex items-center gap-1.5 mb-1 px-1">
+                        <span className="text-[11px] font-bold text-gray-700">
+                          {isMsgStaff ? (msg.sender_name || 'Clinic Clinician') : (msg.sender_name || 'Patient')}
+                        </span>
+                        <span className={`text-[9px] px-1.5 py-0.2 rounded font-bold uppercase tracking-wider ${roleBadge.badgeClass}`}>
+                          {roleBadge.shortLabel}
+                        </span>
+                      </div>
+
+                      {/* Bubble Content */}
+                      <div className={`px-4 py-3 rounded-2xl text-xs sm:text-sm font-medium shadow-xs leading-relaxed ${
+                        isMine
+                          ? 'bg-rose-500 text-white rounded-br-xs'
+                          : msg.is_flagged_urgent
+                          ? 'bg-red-50 text-red-900 border border-red-200 rounded-bl-xs'
+                          : 'bg-white border border-gray-200 text-gray-800 rounded-bl-xs'
+                      } ${msg.id?.startsWith('optimistic') ? 'opacity-70' : ''}`}>
+                        {msg.is_flagged_urgent && !isMsgStaff && (
+                          <div className="flex items-center gap-1 font-bold text-red-700 text-[10px] uppercase tracking-wider mb-1">
+                            <AlertTriangle className="w-3 h-3" /> Potential Danger Sign Flagged
+                          </div>
+                        )}
+                        <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                        {isMsgStaff && (
+                          <div className={`mt-2 pt-1.5 border-t flex justify-end ${
+                            isMine ? 'border-rose-400/60' : 'border-slate-100'
+                          }`}>
+                            <span className={`flex items-center gap-1 text-[9px] font-bold tracking-wider ${
+                              isMine ? 'text-rose-100' : 'text-emerald-600'
+                            }`}>
+                              <CheckCheck className="w-3 h-3" /> Verified Clinical Advice
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      <span 
+                        className="text-[10px] font-semibold text-gray-400 mt-1 font-mono" 
+                        title={formatRelativeConsultationTime(msg.created_at)}
+                      >
+                        {new Date(msg.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+
+                  </div>
                 </div>
-              </div>
+              </React.Fragment>
             );
           })
         ) : (

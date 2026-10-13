@@ -232,12 +232,13 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
                     {user.user_metadata?.full_name || user.email}
                   </span>
                 </a>
-                <form action={logoutAction}>
+                <form action={logoutAction || "/auth/logout"}>
                   <Button
+                    type="submit"
                     variant="ghost"
                     size="sm"
                     className={cn(
-                      "rounded-full gap-1.5 text-xs font-semibold",
+                      "rounded-full gap-1.5 text-xs font-semibold cursor-pointer",
                       scrolled
                         ? "text-slate-500 hover:text-primary hover:bg-primary/5"
                         : "text-white/80 hover:text-white hover:bg-white/15"
@@ -352,8 +353,8 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
                           My Dashboard
                         </a>
                       </Button>
-                      <form action={logoutAction}>
-                        <Button className="w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90">
+                      <form action={logoutAction || "/auth/logout"}>
+                        <Button type="submit" className="w-full rounded-full bg-primary text-primary-foreground hover:bg-primary/90 cursor-pointer">
                           <LogOut className="mr-2 h-4 w-4" />
                           Logout
                         </Button>

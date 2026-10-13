@@ -4,9 +4,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signup } from "../actions";
+import { GoogleButton } from "@/components/auth/google-button";
 
 export default async function RegisterPage({ searchParams }) {
-  const params = await searchParams; // Wait for search params (Next 15+ standard)
+  const params = (await searchParams) || {};
 
   return (
     <Card className="border-none shadow-xl shadow-gray-200/50">
@@ -54,6 +55,18 @@ export default async function RegisterPage({ searchParams }) {
           </Button>
         </CardContent>
       </form>
+
+      <div className="px-6 pb-2">
+        <div className="relative mb-6">
+          <div className="absolute inset-0 flex items-center">
+            <span className="w-full border-t border-gray-200" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-white px-2 text-gray-500 font-medium">Or register with</span>
+          </div>
+        </div>
+        <GoogleButton label="Sign up with Google" next="/book" />
+      </div>
 
       <CardFooter className="flex flex-col border-t p-6 mt-4">
         <div className="text-center text-sm text-gray-500">

@@ -7,7 +7,8 @@ import {
   Search, CheckCircle2, Clock, CheckCheck,
   AlertOctagon, ExternalLink, X, Paperclip, Check,
   Stethoscope, HeartPulse, Activity, Baby,
-  Droplets, Phone, ShieldCheck, PanelRightClose, PanelRightOpen
+  Droplets, Phone, ShieldCheck, PanelRightClose, PanelRightOpen,
+  Volume2, VolumeX, Calendar
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { Button } from '@/components/ui/button';
@@ -16,6 +17,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { formatRoleBadge } from '@/lib/rbac';
 import { calculateObstetricDates } from '@/lib/clinical-protocols';
 import { sendConsultationMessage, updateConsultationStatus } from '@/app/actions';
+import { 
+  playConsultationChime, 
+  formatRelativeConsultationTime, 
+  formatMessageDateDivider 
+} from '@/lib/utils';
 
 // Clinical obstetric macro responses formulated under DOH BEmONC & maternal safety standards
 const CLINICAL_MACROS = [
@@ -25,18 +31,28 @@ const CLINICAL_MACROS = [
     urgent: true,
   },
   {
-    title: 'Hydration & Rest',
+    title: 'Pre-eclampsia Warning',
+    text: 'Elevated blood pressure accompanied by a severe persistent headache, dizziness, or visual blurring is a potential sign of pre-eclampsia. Please have your companion bring you to the clinic immediately for maternal evaluation.',
+    urgent: true,
+  },
+  {
+    title: 'Labor Signs & Water Break',
+    text: 'Regular uterine contractions occurring every 5 minutes or leaking clear fluid indicates active labor. Please bring your PhilHealth ID, maternal book, and baby bag directly to our lying-in clinic now.',
+    urgent: true,
+  },
+  {
+    title: 'Fetal Kick Count Protocol',
+    text: 'Please monitor your baby\'s kicks while resting comfortably on your left side. You should feel at least 10 distinct kicks within 2 hours. If kicks are fewer, weak, or absent, please proceed to the clinic right away.',
+    urgent: false,
+  },
+  {
+    title: 'Hydration & Left Side Rest',
     text: 'Please rest comfortably on your left side in a quiet room and ensure you are well-hydrated. If symptoms persist or worsen, please visit the clinic.',
     urgent: false,
   },
   {
     title: 'Normal Sensation Guidance',
-    text: 'What you are experiencing can be normal at this stage of pregnancy. Please continue your routine prenatal vitamins and observe. Contact us immediately if you experience bleeding, severe pain, or decreased fetal movement.',
-    urgent: false,
-  },
-  {
-    title: 'Fetal Kick Count',
-    text: 'Please monitor your baby\'s kicks. You should feel at least 10 distinct movements within 2 hours while resting on your side. If kicks are fewer, weak, or absent, please proceed to the clinic right away.',
+    text: 'What you are experiencing can be normal at this stage of pregnancy. Please continue your routine prenatal vitamins and observe. Contact us immediately if you experience bleeding, severe pain, or fever.',
     urgent: false,
   }
 ];
@@ -64,10 +80,23 @@ export function ConsultationsInbox({
   const [searchTerm, setSearchTerm] = useState('');
   const [replyText, setReplyText] = useState('');
   const [isUrgentReply, setIsUrgentReply] = useState(false);
+  const [showRightDrawer, setShowRightDrawer] = useState(true);
+  const [isChimeMuted, setIsChimeMuted] = useState(false);
+  const [macroMode, setMacroMode] = useState('replace'); // 'replace' | 'append'
   const [isSending, startSendTransition] = useTransition();
   const [isUpdatingStatus, startStatusTransition] = useTransition();
 
   const messagesEndRef = useRef(null);
+  const threadsRef = useRef(threads);
+  useEffect(() => {
+    threadsRef.current = threads;
+  }, [threads]);
+
+  const isChimeMutedRef = useRef(isChimeMuted);
+  useEffect(() => {
+    isChimeMutedRef.current = isChimeMuted;
+  }, [isChimeMuted]);
+
   const supabase = createClient();
 
   // Active thread & patient details
@@ -83,8 +112,6 @@ export function ConsultationsInbox({
   const gravida = activeEpisode?.gravida ?? activeEpisode?.gravidity ?? activePatient?.gravida ?? 1;
   const para = activeEpisode?.para ?? activeEpisode?.parity ?? activePatient?.para ?? 0;
 
-  // Toggle for right clinical snapshot drawer (default open)
-  const [showRightDrawer, setShowRightDrawer] = useState(true);
 
   // Latest bedside vitals from visit logs
   const latestVitals = activeThread?.latestVisitLog;
@@ -162,13 +189,55 @@ export function ConsultationsInbox({
           schema: 'public',
           table: 'consultation_messages',
         },
-        (payload) => {
+        async (payload) => {
           const newMsg = payload.new;
+
+          // Play Web Audio triage chime if incoming message is from a patient
+          if (newMsg.sender_role === 'patient') {
+            playConsultationChime(!isChimeMutedRef.current, Boolean(newMsg.is_flagged_urgent));
+          }
+
+          const existingIndex = threadsRef.current.findIndex(t => t.patient?.id === newMsg.patient_id);
+          
+          if (existingIndex === -1) {
+            // First-time patient inquiry: dynamically fetch patient demographics & latest vitals so thread isn't lost
+            const { data: patientData } = await supabase
+              .from('patients')
+              .select('id, full_name, mobile_number, email, age, date_of_birth, blood_type, is_high_risk, high_risk_reasons, allergies, philhealth_number, husband_partner_name, contact_number, maternal_episodes(*)')
+              .eq('id', newMsg.patient_id)
+              .maybeSingle();
+
+            const { data: latestLog } = await supabase
+              .from('visit_logs')
+              .select('*')
+              .eq('patient_id', newMsg.patient_id)
+              .order('visit_date', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            const newThread = {
+              patient: patientData || { id: newMsg.patient_id, full_name: newMsg.sender_name || `Patient #${newMsg.patient_id.slice(0, 6)}` },
+              latestVisitLog: latestLog || null,
+              recentLabs: [],
+              messages: [newMsg],
+              lastMessage: newMsg,
+              hasUrgent: Boolean(newMsg.is_flagged_urgent),
+              status: newMsg.sender_role === 'patient' ? 'unread' : 'pending',
+            };
+
+            setThreads(prev => {
+              if (prev.some(t => t.patient?.id === newMsg.patient_id)) {
+                return prev;
+              }
+              return [newThread, ...prev];
+            });
+            return;
+          }
+
           setThreads(prevThreads => {
             const threadIndex = prevThreads.findIndex(t => t.patient?.id === newMsg.patient_id);
-            if (threadIndex === -1) {
-              return prevThreads;
-            }
+            if (threadIndex === -1) return prevThreads;
+
             const updatedThreads = [...prevThreads];
             const targetThread = { ...updatedThreads[threadIndex] };
             
@@ -305,9 +374,23 @@ export function ConsultationsInbox({
               <h2 className="text-[15px] font-bold text-gray-900 tracking-tight">
                 Consultations & Triage
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-xs border border-rose-100">
-                {threads.length} Active
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsChimeMuted(prev => !prev)}
+                  className={`p-1.5 rounded-xl border text-xs transition-all flex items-center gap-1 shadow-2xs ${
+                    isChimeMuted 
+                      ? 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100' 
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  }`}
+                  title={isChimeMuted ? "Audio chime muted (Click to unmute)" : "Audio chime active (Click to mute)"}
+                >
+                  {isChimeMuted ? <VolumeX className="w-3.5 h-3.5 text-amber-600" /> : <Volume2 className="w-3.5 h-3.5 text-emerald-600" />}
+                </button>
+                <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-xs border border-rose-100">
+                  {threads.length} Active
+                </span>
+              </div>
             </div>
 
             {/* Live Search Input */}
@@ -405,12 +488,9 @@ export function ConsultationsInbox({
                           <span className="font-bold text-[14px] text-gray-900 truncate">
                             {thread.patient?.full_name}
                           </span>
-                          <span className="text-[11px] text-gray-400 shrink-0">
+                          <span className="text-[11px] text-gray-400 shrink-0 font-medium" title={thread.lastMessage?.created_at}>
                             {thread.lastMessage?.created_at
-                              ? new Date(thread.lastMessage.created_at).toLocaleTimeString('en-PH', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })
+                              ? formatRelativeConsultationTime(thread.lastMessage.created_at)
                               : ''}
                           </span>
                         </div>
@@ -566,61 +646,78 @@ export function ConsultationsInbox({
             {/* Chronological Message Stream */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
               {activeThread.messages && activeThread.messages.length > 0 ? (
-                activeThread.messages.map((msg) => {
+                activeThread.messages.map((msg, index) => {
                   const isStaff = ['admin', 'doctor', 'midwife', 'nurse', 'staff'].includes(msg.sender_role);
                   const roleBadge = formatRoleBadge(msg.sender_role);
                   const timeStr = new Date(msg.created_at).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' });
+                  const relativeTime = formatRelativeConsultationTime(msg.created_at);
+
+                  // Calculate date dividers
+                  const prevMsg = index > 0 ? activeThread.messages[index - 1] : null;
+                  const prevDivider = prevMsg ? formatMessageDateDivider(prevMsg.created_at) : null;
+                  const currentDivider = formatMessageDateDivider(msg.created_at);
+                  const showDivider = !prevMsg || (prevDivider !== currentDivider);
 
                   return (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'} max-w-[85%] ${isStaff ? 'ml-auto' : 'mr-auto'}`}
-                    >
-                      <div className={`flex items-center gap-2 mb-1.5 px-1 ${isStaff ? 'flex-row-reverse' : 'flex-row'}`}>
-                        <span className="text-[13px] font-bold text-slate-700">
-                          {isStaff ? (msg.sender_name || 'Clinic Clinician') : (msg.sender_name || activePatient?.full_name)}
-                        </span>
-                        {isStaff ? (
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roleBadge.badgeClass}`}>
-                            {roleBadge.shortLabel}
+                    <React.Fragment key={msg.id}>
+                      {showDivider && currentDivider && (
+                        <div className="flex items-center justify-center my-4 select-none">
+                          <div className="h-px bg-slate-200/80 flex-1 max-w-[120px]" />
+                          <span className="mx-3 px-3 py-0.5 rounded-full bg-slate-100 border border-slate-200/70 text-[10px] font-bold text-slate-500 uppercase tracking-wider shadow-2xs">
+                            {currentDivider}
                           </span>
-                        ) : (
-                          <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                            Patient Portal
-                          </span>
-                        )}
-                        <span className="text-[11px] text-slate-400 font-medium">
-                          {timeStr}
-                        </span>
-                      </div>
-
+                          <div className="h-px bg-slate-200/80 flex-1 max-w-[120px]" />
+                        </div>
+                      )}
                       <div
-                        className={`p-4 text-[14px] leading-relaxed relative ${
-                          isStaff
-                            ? 'bg-slate-800 text-white rounded-2xl rounded-tr-sm shadow-md'
-                            : msg.is_flagged_urgent
-                            ? 'bg-rose-50 text-rose-900 border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm'
-                            : 'bg-white text-slate-800 border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm'
-                        }`}
+                        className={`flex flex-col ${isStaff ? 'items-end' : 'items-start'} max-w-[85%] ${isStaff ? 'ml-auto' : 'mr-auto'}`}
                       >
-                        {msg.is_flagged_urgent && !isStaff && (
-                          <div className="flex items-center gap-1.5 font-bold text-rose-700 text-[11px] uppercase tracking-wider mb-2 pb-1.5 border-b border-rose-200">
-                            <AlertTriangle className="w-3.5 h-3.5" />
-                            <span>Urgent Inquiry</span>
-                          </div>
-                        )}
-
-                        <p className="whitespace-pre-wrap">{msg.content}</p>
-
-                        {isStaff && (
-                          <div className="mt-2 pt-2 border-t border-slate-700 flex justify-end">
-                            <span className="flex items-center gap-1 text-[10px] text-slate-300 font-medium">
-                              <CheckCheck className="w-3.5 h-3.5" /> Verified Clinical Advice
+                        <div className={`flex items-center gap-2 mb-1.5 px-1 ${isStaff ? 'flex-row-reverse' : 'flex-row'}`}>
+                          <span className="text-[13px] font-bold text-slate-700">
+                            {isStaff ? (msg.sender_name || 'Clinic Clinician') : (msg.sender_name || activePatient?.full_name)}
+                          </span>
+                          {isStaff ? (
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${roleBadge.badgeClass}`}>
+                              {roleBadge.shortLabel}
                             </span>
-                          </div>
-                        )}
+                          ) : (
+                            <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
+                              Patient Portal
+                            </span>
+                          )}
+                          <span className="text-[11px] text-slate-400 font-medium" title={relativeTime}>
+                            {timeStr}
+                          </span>
+                        </div>
+
+                        <div
+                          className={`p-4 text-[14px] leading-relaxed relative ${
+                            isStaff
+                              ? 'bg-slate-800 text-white rounded-2xl rounded-tr-sm shadow-md'
+                              : msg.is_flagged_urgent
+                              ? 'bg-rose-50 text-rose-900 border border-rose-200 rounded-2xl rounded-tl-sm shadow-sm'
+                              : 'bg-white text-slate-800 border border-slate-200 rounded-2xl rounded-tl-sm shadow-sm'
+                          }`}
+                        >
+                          {msg.is_flagged_urgent && !isStaff && (
+                            <div className="flex items-center gap-1.5 font-bold text-rose-700 text-[11px] uppercase tracking-wider mb-2 pb-1.5 border-b border-rose-200">
+                              <AlertTriangle className="w-3.5 h-3.5" />
+                              <span>Urgent Inquiry</span>
+                            </div>
+                          )}
+
+                          <p className="whitespace-pre-wrap">{msg.content}</p>
+
+                          {isStaff && (
+                            <div className="mt-2 pt-2 border-t border-slate-700 flex justify-end">
+                              <span className="flex items-center gap-1 text-[10px] text-slate-300 font-medium">
+                                <CheckCheck className="w-3.5 h-3.5" /> Verified Clinical Advice
+                              </span>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </React.Fragment>
                   );
                 })
               ) : (
@@ -634,24 +731,39 @@ export function ConsultationsInbox({
 
             {/* Bottom Message Input Area */}
             <div className="p-4 bg-white border-t border-slate-200 shrink-0">
-              {/* Quick Clinical Macros */}
-              <div className="flex items-center gap-2 overflow-x-auto pb-3 text-xs no-scrollbar">
-                {CLINICAL_MACROS.map((macro, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => {
-                      setReplyText(macro.text);
-                      if (macro.urgent) setIsUrgentReply(true);
-                    }}
-                    className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all shrink-0 flex items-center border hover:shadow-sm ${
-                      macro.urgent
-                        ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    + {macro.title}
-                  </button>
-                ))}
+              {/* Quick Clinical Macros & Mode Toggle */}
+              <div className="flex items-center justify-between gap-2 pb-3">
+                <div className="flex items-center gap-1.5 overflow-x-auto text-xs no-scrollbar flex-1">
+                  {CLINICAL_MACROS.map((macro, idx) => (
+                    <button
+                      key={idx}
+                      type="button"
+                      onClick={() => {
+                        if (macroMode === 'append' && replyText.trim()) {
+                          setReplyText(prev => prev.trim() + '\n\n' + macro.text);
+                        } else {
+                          setReplyText(macro.text);
+                        }
+                        if (macro.urgent) setIsUrgentReply(true);
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-[11px] font-semibold transition-all shrink-0 flex items-center border hover:shadow-2xs ${
+                        macro.urgent
+                          ? 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                          : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      + {macro.title}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMacroMode(prev => prev === 'replace' ? 'append' : 'replace')}
+                  className="text-[10px] font-bold px-2.5 py-1 rounded-full border text-slate-500 hover:text-slate-800 bg-slate-50 border-slate-200 shrink-0 transition-colors"
+                  title="Toggle whether clicking a macro replaces the current draft or appends to it"
+                >
+                  {macroMode === 'append' ? 'Mode: Append' : 'Mode: Replace'}
+                </button>
               </div>
 
               {/* Compose Box */}
@@ -664,8 +776,11 @@ export function ConsultationsInbox({
                     className="w-full bg-transparent p-4 text-[14px] border-none shadow-none focus-visible:ring-0 resize-none min-h-[56px] max-h-32 text-slate-800 placeholder:text-slate-400"
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        handleSendReply();
+                        const isTouch = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+                        if (!isTouch) {
+                          e.preventDefault();
+                          handleSendReply();
+                        }
                       }
                     }}
                   />
@@ -779,7 +894,15 @@ export function ConsultationsInbox({
               {/* 2. Obstetric Profile & Gestation Progress Bar */}
               <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900">Obstetric Profile</span>
+                  <Link
+                    href={`/admin/patients/${activePatient?.id}?tab=obstetric`}
+                    target="_blank"
+                    className="text-xs font-bold text-slate-900 hover:text-rose-600 transition-colors flex items-center gap-1 group"
+                    title="Open Obstetric Profile in Patient Chart"
+                  >
+                    <span>Obstetric Profile</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-rose-600 transition-colors" />
+                  </Link>
                   <div className="flex items-center gap-1.5">
                     {obstetricData?.trimester && (
                       <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 text-[10px] font-semibold">
@@ -825,9 +948,16 @@ export function ConsultationsInbox({
               {/* 3. Latest Bedside Clinic Vitals (Real Visit Logs) */}
               <div className="p-3.5 rounded-2xl bg-white border border-slate-200/80 shadow-2xs space-y-2.5">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                    <HeartPulse className="w-4 h-4 text-rose-600" /> Latest Clinic Vitals
-                  </span>
+                  <Link
+                    href={`/admin/patients/${activePatient?.id}?tab=labs`}
+                    target="_blank"
+                    className="text-xs font-bold text-slate-900 flex items-center gap-1.5 hover:text-rose-600 transition-colors group"
+                    title="Open Prenatal Labs & Vitals in Patient Chart"
+                  >
+                    <HeartPulse className="w-4 h-4 text-rose-600" />
+                    <span>Latest Clinic Vitals</span>
+                    <ExternalLink className="w-3 h-3 text-slate-400 group-hover:text-rose-600 transition-colors" />
+                  </Link>
                   <span className="text-[10px] text-slate-400 font-mono">
                     {latestVitals?.visit_date ? new Date(latestVitals.visit_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No logs yet'}
                   </span>
@@ -918,16 +1048,22 @@ export function ConsultationsInbox({
                   : 'bg-slate-50/80 border-slate-200/70'
               }`}>
                 <div className="flex items-center justify-between">
-                  <span className={`text-xs font-bold flex items-center gap-1.5 ${
-                    activePatient?.is_high_risk ? 'text-rose-900' : 'text-slate-800'
-                  }`}>
+                  <Link
+                    href={`/admin/patients/${activePatient?.id}?tab=history`}
+                    target="_blank"
+                    className={`text-xs font-bold flex items-center gap-1.5 hover:underline ${
+                      activePatient?.is_high_risk ? 'text-rose-900' : 'text-slate-800'
+                    }`}
+                    title="Open Medical History & Risk Factors in Patient Chart"
+                  >
                     {activePatient?.is_high_risk ? (
                       <AlertTriangle className="w-4 h-4 text-rose-600" />
                     ) : (
                       <ShieldCheck className="w-4 h-4 text-emerald-600" />
                     )}
                     Clinical Safety Status
-                  </span>
+                    <ExternalLink className="w-3 h-3 opacity-60" />
+                  </Link>
                   {activePatient?.is_high_risk ? (
                     <span className="relative flex h-2 w-2">
                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75" />
@@ -995,6 +1131,30 @@ export function ConsultationsInbox({
                 ) : (
                   <p className="text-xs text-slate-400 italic">No emergency contact recorded</p>
                 )}
+              </div>
+
+              {/* 6. Quick Clinic Appointment Referral */}
+              <div className="p-3.5 rounded-2xl bg-gradient-to-br from-rose-50 to-pink-50/40 border border-rose-200/80 shadow-2xs space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-rose-950 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-rose-600" /> Schedule In-Clinic Visit
+                  </span>
+                </div>
+                <p className="text-[11px] text-rose-800/90 leading-tight">
+                  Need this mother to come in for an in-person exam, lab work, or Doppler evaluation?
+                </p>
+                <Link
+                  href={`/admin/appointments?patientId=${activePatient?.id}`}
+                  target="_blank"
+                  className="block w-full"
+                >
+                  <Button
+                    size="sm"
+                    className="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-xs gap-1.5 h-8"
+                  >
+                    <Calendar className="w-3.5 h-3.5" /> Book Follow-Up Appointment
+                  </Button>
+                </Link>
               </div>
             </div>
           </aside>

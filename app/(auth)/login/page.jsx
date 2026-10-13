@@ -4,10 +4,10 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { login } from "../actions";
-import { FacebookButton } from "@/components/auth/facebook-button";
+import { GoogleButton } from "@/components/auth/google-button";
 
 export default async function LoginPage({ searchParams }) {
-  const params = await searchParams; // Wait for search params (Next 15+ standard)
+  const params = (await searchParams) || {};
 
   return (
     <Card className="border-none shadow-xl shadow-gray-200/50">
@@ -43,7 +43,7 @@ export default async function LoginPage({ searchParams }) {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label htmlFor="password">Password</Label>
-              <Link href="#" className="text-sm font-medium text-violet-600 hover:text-violet-700">
+              <Link href="/forgot-password" className="text-sm font-medium text-rose-500 hover:text-rose-600 transition-colors">
                 Forgot password?
               </Link>
             </div>
@@ -66,7 +66,7 @@ export default async function LoginPage({ searchParams }) {
             <span className="bg-white px-2 text-gray-500 font-medium">Or continue with</span>
           </div>
         </div>
-        <FacebookButton />
+        <GoogleButton />
       </div>
       
 

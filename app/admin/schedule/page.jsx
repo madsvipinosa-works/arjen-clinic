@@ -1,9 +1,14 @@
+// app/admin/schedule/page.jsx
+// AR-JEN Maternity Clinic: Schedule & Shift Capacity Management
+
 import { createClient } from "@/utils/supabase/server";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { CalendarX2, Clock, Plus, Trash2, CalendarDays, AlertCircle } from "lucide-react";
+import { Clock, CalendarCheck } from "lucide-react";
 import { TimeSlotList } from "@/components/forms/time-slot-list";
+import { AddTimeSlotForm } from "@/components/forms/add-time-slot-form";
+import { WeekendPolicyManager } from "@/components/forms/weekend-policy-manager";
+import { BlockedDatesManager } from "@/components/forms/blocked-dates-manager";
+import { ScheduleCapacityVisualizer } from "@/components/admin/schedule-capacity-visualizer";
+import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
 import {
   addBlockedDate,
   removeBlockedDate,
@@ -13,6 +18,11 @@ import {
   toggleSaturdayBlock,
   toggleSundayBlock,
 } from "../../actions";
+
+export const metadata = {
+  title: "Clinic Schedule & Capacity | AR-JEN Clinic Admin",
+  description: "Configure booking windows, patient shift limits, and holiday closures for AR-JEN Maternity Clinic.",
+};
 
 export default async function ScheduleSettingsPage() {
   const supabase = await createClient();
@@ -33,15 +43,17 @@ export default async function ScheduleSettingsPage() {
     .select("*")
     .order("blocked_date", { ascending: true });
 
-  // Fetch upcoming appointments to calculate load (Phase 1 completion)
-  const today = new Date().toISOString().split('T')[0];
+  // Today in Philippine Standard Time (PHT, UTC+8)
+  const today = getClinicTodayDateString();
+
+  // Fetch upcoming appointments to calculate live capacity load
   const { data: appointments } = await supabase
     .from("appointments")
     .select("appointment_date, time_preference")
     .gte("appointment_date", today)
     .neq("status", "Rejected");
 
-  // Build load map: { "2026-05-01": { "7:30 AM - 8:30 AM": 4, ... } }
+  // Build load map: { "YYYY-MM-DD": { "7:30 AM - 8:30 AM": 4, ... } }
   const loadMap = {};
   appointments?.forEach((a) => {
     if (!a.appointment_date || !a.time_preference) return;
@@ -50,166 +62,68 @@ export default async function ScheduleSettingsPage() {
     loadMap[a.appointment_date][label] = (loadMap[a.appointment_date][label] || 0) + 1;
   });
 
-  // Get next 5 days for the load view (typical work week)
-  const next5Days = Array.from({ length: 5 }, (_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + i);
-    return d.toISOString().split('T')[0];
-  });
+  // Rolling 7-day calendar week strictly generated in Philippine Standard Time
+  const next7Days = Array.from({ length: 7 }, (_, i) => getClinicDateOffset(i));
 
   const blockSaturday = settings?.block_saturday || false;
-  const blockSunday   = settings?.block_sunday   || false;
+  const blockSunday = settings?.block_sunday || false;
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
-      <div>
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">Clinic Schedule</h1>
-        <p className="text-gray-500 mt-1">Configure booking windows, patient limits, and blocked dates.</p>
-      </div>
-
-      {/* ─── Incoming Patient Load (Phase 1 Visualizer) ────────────────── */}
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
-        <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100 bg-emerald-50/40">
-          <div className="p-2 bg-emerald-500 rounded-xl shadow-md">
-            <CalendarDays className="w-5 h-5 text-white" />
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300 font-jakarta max-w-7xl mx-auto">
+      
+      {/* Page Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-3xl font-extrabold text-gray-900 tracking-tight">
+              Clinic Schedule &amp; Shift Limits
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 font-bold text-xs border border-rose-100 flex items-center gap-1">
+              <CalendarCheck className="w-3.5 h-3.5" />
+              {timeSlots?.length || 0} Active Windows
+            </span>
           </div>
-          <div>
-            <h2 className="font-bold text-gray-900 text-lg">Incoming Patient Load</h2>
-            <p className="text-xs text-gray-500">Overview of booked slots for the next 5 days.</p>
-          </div>
-        </div>
-        
-        <div className="p-6 overflow-x-auto">
-          <div className="flex gap-4 min-w-max pb-2">
-            {next5Days.map((dateStr) => {
-              const dateObj = new Date(dateStr + 'T00:00:00');
-              const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
-              const isBlocked = blockedDates?.some(b => b.blocked_date === dateStr);
-              const dayLoad = loadMap[dateStr] || {};
-              
-              return (
-                <div 
-                  key={dateStr} 
-                  className={`w-48 flex-shrink-0 rounded-2xl border p-4 transition-all ${
-                    isBlocked || (dateObj.getDay() === 6 && blockSaturday) || (dateObj.getDay() === 0 && blockSunday)
-                      ? "bg-gray-50 border-gray-100 opacity-60"
-                      : "bg-white border-gray-100 hover:shadow-md"
-                  }`}
-                >
-                  <div className="mb-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-gray-400">
-                      {dateObj.toLocaleDateString('en-US', { weekday: 'short' })}
-                    </p>
-                    <p className="text-sm font-bold text-gray-900">
-                      {dateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </p>
-                  </div>
-
-                  {isBlocked ? (
-                    <div className="py-4 text-center">
-                      <AlertCircle className="w-5 h-5 text-gray-300 mx-auto mb-1" />
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Blocked</p>
-                    </div>
-                  ) : (isWeekend && ((dateObj.getDay() === 6 && blockSaturday) || (dateObj.getDay() === 0 && blockSunday))) ? (
-                    <div className="py-4 text-center">
-                      <CalendarX2 className="w-5 h-5 text-gray-300 mx-auto mb-1" />
-                      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-tighter">Weekend</p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {timeSlots?.map(slot => {
-                        const count = dayLoad[slot.label] || 0;
-                        const percentage = Math.min((count / slot.max_capacity) * 100, 100);
-                        const isFull = count >= slot.max_capacity;
-                        
-                        return (
-                          <div key={slot.id} className="space-y-1">
-                            <div className="flex justify-between text-[10px] font-bold uppercase">
-                              <span className="text-gray-500 truncate mr-2">{slot.label.split(' ')[0]}</span>
-                              <span className={isFull ? "text-red-500" : "text-gray-400"}>
-                                {count}/{slot.max_capacity}
-                              </span>
-                            </div>
-                            <div className="h-1.5 w-full bg-gray-100 rounded-full overflow-hidden">
-                              <div 
-                                className={`h-full rounded-full transition-all duration-500 ${
-                                  isFull ? "bg-red-500" : percentage > 70 ? "bg-amber-500" : "bg-emerald-500"
-                                }`}
-                                style={{ width: `${percentage}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })}
-                      {timeSlots?.length === 0 && (
-                        <p className="text-[10px] text-gray-400 italic text-center py-4">No slots active</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <p className="text-gray-500 mt-1 text-sm">
+            Configure outpatient appointment windows, patient per-shift capacity, and holiday closure policies.
+          </p>
         </div>
       </div>
 
+      {/* ─── 7-Day Rolling Horizon Load Visualizer ──────────────────────── */}
+      <ScheduleCapacityVisualizer
+        next7Days={next7Days}
+        loadMap={loadMap}
+        timeSlots={timeSlots || []}
+        blockedDates={blockedDates || []}
+        blockSaturday={blockSaturday}
+        blockSunday={blockSunday}
+        todayDateStr={today}
+      />
+
+      {/* ─── 2-Column Core Management Workspace ────────────────────────── */}
       <div className="grid lg:grid-cols-2 gap-8 items-start">
 
-        {/* ─── Time Slots Manager ─────────────────────────────── */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
-          <div className="flex items-center gap-3 px-6 py-5 border-b border-gray-100 bg-rose-50/40">
-            <div className="p-2 bg-rose-500 rounded-xl shadow-md">
-              <Clock className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h2 className="font-bold text-gray-900 text-lg">Time Slots</h2>
-              <p className="text-xs text-gray-500">Define specific booking windows with patient limits.</p>
+        {/* ─── Time Slots Manager ──────────────────────────────────────── */}
+        <div className="bg-white rounded-3xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100 bg-rose-50/40">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-rose-500 rounded-2xl shadow-md text-white shadow-rose-500/20">
+                <Clock className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="font-bold text-gray-900 text-lg">Booking Windows &amp; Limits</h2>
+                <p className="text-xs text-gray-500">Define triage slots and maximum patient capacity per midwife shift.</p>
+              </div>
             </div>
           </div>
 
-          {/* Add New Slot — two time pickers */}
-          <form action={addTimeSlot} className="p-5 border-b border-gray-100 bg-gray-50/50 space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <Label className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Start Time</Label>
-                <Input
-                  type="time"
-                  name="start_time"
-                  required
-                  className="focus-visible:ring-rose-500 h-10"
-                />
-              </div>
-              <div className="space-y-1">
-                <Label className="text-xs text-gray-500 uppercase tracking-wider font-semibold">End Time</Label>
-                <Input
-                  type="time"
-                  name="end_time"
-                  required
-                  className="focus-visible:ring-rose-500 h-10"
-                />
-              </div>
-            </div>
-            <div className="flex items-end gap-3">
-              <div className="flex-1 space-y-1">
-                <Label className="text-xs text-gray-500 uppercase tracking-wider font-semibold">Max Patients</Label>
-                <Input
-                  name="max_capacity"
-                  type="number"
-                  defaultValue={10}
-                  min={1}
-                  max={100}
-                  maxLength={3}
-                  className="focus-visible:ring-rose-500 h-10"
-                  required
-                />
-              </div>
-              <Button type="submit" className="bg-rose-500 hover:bg-rose-600 text-white rounded-xl h-10 px-5 gap-2 shadow-sm">
-                <Plus className="w-4 h-4" /> Add Slot
-              </Button>
-            </div>
-          </form>
+          {/* Add New Slot — Client-side validated with overlap prevention */}
+          <AddTimeSlotForm
+            existingSlots={timeSlots || []}
+            addTimeSlot={addTimeSlot}
+          />
 
-          {/* Slot List — client component handles edit state */}
+          {/* Slot List — Interactive with inline capacity auto-save and two-step safe deletion */}
           <TimeSlotList
             timeSlots={timeSlots || []}
             deleteTimeSlot={deleteTimeSlot}
@@ -217,111 +131,25 @@ export default async function ScheduleSettingsPage() {
           />
         </div>
 
-        {/* ─── Weekend + Blocked Dates ──────────────────────────── */}
+        {/* ─── Weekend Policies & Blocked Dates ────────────────────────── */}
         <div className="space-y-6">
 
-          {/* Separate Saturday / Sunday Toggles */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
-            <div className="flex items-center gap-3 px-6 py-4 border-b border-gray-100 bg-slate-50/40">
-              <div className="p-2 bg-slate-800 rounded-xl shadow-md">
-                <CalendarX2 className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h2 className="font-bold text-gray-900 text-lg">Weekend Policy</h2>
-                <p className="text-xs text-gray-500">Independently block Saturday and/or Sunday bookings.</p>
-              </div>
-            </div>
+          {/* Independent Saturday / Sunday Policy Controls */}
+          <WeekendPolicyManager
+            initialBlockSaturday={blockSaturday}
+            initialBlockSunday={blockSunday}
+            toggleSaturdayBlock={toggleSaturdayBlock}
+            toggleSundayBlock={toggleSundayBlock}
+          />
 
-            <div className="divide-y divide-gray-100">
-              {/* Saturday Toggle */}
-              <div className="flex items-center justify-between px-6 py-4">
-                <div>
-                  <p className="font-semibold text-gray-800">Block Saturdays</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Prevent patients from booking on all Saturdays.</p>
-                </div>
-                <form action={toggleSaturdayBlock}>
-                  <input type="hidden" name="block_saturday" value={blockSaturday ? "false" : "true"} />
-                  <Button
-                    type="submit"
-                    className={`h-9 px-5 rounded-xl font-semibold text-sm transition-all ${
-                      blockSaturday
-                        ? "bg-rose-500 text-white hover:bg-rose-600 shadow-md"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {blockSaturday ? "✓ Blocked" : "Off"}
-                  </Button>
-                </form>
-              </div>
+          {/* Specific Blocked Dates & Philippine Closure Presets */}
+          <BlockedDatesManager
+            blockedDates={blockedDates || []}
+            addBlockedDate={addBlockedDate}
+            removeBlockedDate={removeBlockedDate}
+            todayDate={today}
+          />
 
-              {/* Sunday Toggle */}
-              <div className="flex items-center justify-between px-6 py-4">
-                <div>
-                  <p className="font-semibold text-gray-800">Block Sundays</p>
-                  <p className="text-xs text-gray-400 mt-0.5">Prevent patients from booking on all Sundays.</p>
-                </div>
-                <form action={toggleSundayBlock}>
-                  <input type="hidden" name="block_sunday" value={blockSunday ? "false" : "true"} />
-                  <Button
-                    type="submit"
-                    className={`h-9 px-5 rounded-xl font-semibold text-sm transition-all ${
-                      blockSunday
-                        ? "bg-rose-500 text-white hover:bg-rose-600 shadow-md"
-                        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                    }`}
-                  >
-                    {blockSunday ? "✓ Blocked" : "Off"}
-                  </Button>
-                </form>
-              </div>
-            </div>
-          </div>
-
-          {/* Specific Blocked Dates */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-xl shadow-gray-200/30 overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-100 bg-slate-50/40">
-              <h2 className="font-bold text-gray-900 text-lg">Blocked Dates</h2>
-              <p className="text-xs text-gray-500 mt-0.5">Lock specific dates like holidays or doctor leaves.</p>
-            </div>
-
-            <div className="p-5 space-y-4">
-              <form action={addBlockedDate} className="flex flex-col sm:flex-row gap-3">
-                <Input type="date" name="blocked_date" className="flex-1 focus-visible:ring-slate-500 h-10" required />
-                <Input type="text" name="reason" placeholder="Reason (e.g. Holiday)" className="flex-1 focus-visible:ring-slate-500 h-10" required />
-                <Button type="submit" className="bg-slate-800 hover:bg-slate-900 text-white rounded-xl h-10 px-4 gap-1.5 whitespace-nowrap">
-                  <Plus className="w-4 h-4" /> Block
-                </Button>
-              </form>
-
-              <div className="space-y-2 max-h-[280px] overflow-y-auto pr-1">
-                {blockedDates?.length === 0 ? (
-                  <p className="text-sm text-gray-400 italic text-center py-4">No dates currently blocked.</p>
-                ) : (
-                  blockedDates?.map((b) => (
-                    <div key={b.id} className="flex items-center justify-between p-3 bg-slate-50 border border-slate-100 rounded-xl group">
-                      <div className="flex items-center gap-3">
-                        <span className="font-bold text-slate-700 text-sm">{b.blocked_date}</span>
-                        <span className="text-xs text-slate-400 font-medium bg-white border border-slate-200 px-2 py-0.5 rounded-lg">
-                          {b.reason}
-                        </span>
-                      </div>
-                      <form action={removeBlockedDate}>
-                        <input type="hidden" name="id" value={b.id} />
-                        <Button
-                          type="submit"
-                          variant="ghost"
-                          size="sm"
-                          className="text-gray-300 hover:text-red-500 hover:bg-red-50 h-8 w-8 p-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </Button>
-                      </form>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

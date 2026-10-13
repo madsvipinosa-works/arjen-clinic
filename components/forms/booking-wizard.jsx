@@ -25,6 +25,12 @@ import {
   Sunset,
   Sparkles,
 } from "lucide-react";
+import {
+  getClinicTodayDateString,
+  getClinicDateOffset,
+  isSlotExpired,
+  areAllSlotsExpired,
+} from "@/lib/utils";
 import { useFormStatus } from "react-dom";
 
 function SubmitButton() {
@@ -94,29 +100,29 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
     return DEFAULT_SERVICES;
   }, [services]);
 
-  const today = useMemo(() => new Date().toISOString().split("T")[0], []);
+  const today = useMemo(() => getClinicTodayDateString(), []);
 
-  // Quick next 7 days chips
+  // Quick next 7 days chips in Philippine Standard Time
   const quickDates = useMemo(() => {
     const dates = [];
-    const now = new Date();
     for (let i = 0; i < 7; i++) {
-      const d = new Date(now);
-      d.setDate(now.getDate() + i);
-      const isoStr = d.toISOString().split("T")[0];
+      const isoStr = getClinicDateOffset(i);
+      const d = new Date(isoStr + "T00:00:00");
       const dayName = i === 0 ? "Today" : i === 1 ? "Tomorrow" : d.toLocaleDateString("en-US", { weekday: "short" });
       const monthDay = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
       const dayOfWeek = d.getDay();
       const isClosed = (dayOfWeek === 6 && blockSaturday) || (dayOfWeek === 0 && blockSunday) || blockedDates.includes(isoStr);
+      const allSlotsExpiredForDate = areAllSlotsExpired(timeSlots, isoStr);
       dates.push({
         iso: isoStr,
         dayName,
         monthDay,
         isClosed,
+        allSlotsExpiredForDate,
       });
     }
     return dates;
-  }, [blockSaturday, blockSunday, blockedDates]);
+  }, [blockSaturday, blockSunday, blockedDates, timeSlots]);
 
   const updateField = (field, value) => {
     setFormData((prev) => {
@@ -154,14 +160,23 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
   const dateUnavailable = isDateBlocked || isDateWeekend;
 
   const getSlotStatus = (slot) => {
-    if (!selectedDate) return { full: false, count: 0, left: slot.max_capacity };
+    if (!selectedDate) return { full: false, isPast: false, unavailable: false, count: 0, left: slot.max_capacity };
     const count = loadMap[selectedDate]?.[slot.label] || 0;
     const left = Math.max(0, slot.max_capacity - count);
-    return { full: count >= slot.max_capacity, count, left };
+    const full = count >= slot.max_capacity;
+    const isPast = isSlotExpired(slot, selectedDate);
+    const unavailable = full || isPast;
+    return { full, isPast, unavailable, count, left };
   };
 
+  const allSlotsUnavailable =
+    timeSlots.length > 0 && timeSlots.every((s) => getSlotStatus(s).unavailable);
+
+  const allSlotsPast =
+    timeSlots.length > 0 && timeSlots.every((s) => getSlotStatus(s).isPast);
+
   const allSlotsFull =
-    timeSlots.length > 0 && timeSlots.every((s) => getSlotStatus(s).full);
+    timeSlots.length > 0 && !allSlotsPast && timeSlots.every((s) => getSlotStatus(s).full);
 
   // Group slots into Morning & Afternoon
   const { morningSlots, afternoonSlots } = useMemo(() => {
@@ -186,9 +201,11 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
 
   const step2Valid = () => {
     if (!selectedDate || !formData.selectedSlotId) return false;
-    if (dateUnavailable || allSlotsFull) return false;
+    if (dateUnavailable || allSlotsUnavailable) return false;
     const chosen = timeSlots.find((s) => s.id === formData.selectedSlotId);
-    if (chosen && getSlotStatus(chosen).full) return false;
+    if (!chosen) return false;
+    const status = getSlotStatus(chosen);
+    if (status.unavailable) return false;
     return true;
   };
 
@@ -547,9 +564,13 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                       >
                         {item.monthDay}
                       </span>
-                      {item.isClosed && (
+                      {item.isClosed ? (
                         <span className="text-[9px] font-bold text-slate-400 mt-0.5">Closed</span>
-                      )}
+                      ) : item.allSlotsExpiredForDate ? (
+                        <span className={`text-[9px] font-bold mt-0.5 ${isSelected ? "text-rose-100" : "text-amber-600"}`}>
+                          Concluded
+                        </span>
+                      ) : null}
                     </button>
                   );
                 })}
@@ -585,10 +606,29 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                   </span>
                 </div>
               )}
-              {allSlotsFull && !dateUnavailable && selectedDate && (
-                <div className="p-3 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2 text-red-700 text-xs font-bold">
-                  <AlertCircle className="w-4 h-4 shrink-0" />
-                  <span>All time windows on this date are fully booked. Please select another date.</span>
+              {allSlotsUnavailable && !dateUnavailable && selectedDate && (
+                <div
+                  className={`p-3.5 rounded-2xl flex items-start gap-2.5 text-xs font-bold border ${
+                    allSlotsPast
+                      ? "bg-amber-50/90 border-amber-200 text-amber-900"
+                      : "bg-red-50 border-red-200 text-red-700"
+                  }`}
+                >
+                  <AlertCircle
+                    className={`w-4 h-4 shrink-0 mt-0.5 ${
+                      allSlotsPast ? "text-amber-600" : "text-red-500"
+                    }`}
+                  />
+                  <div>
+                    <p className="font-black text-sm">
+                      {allSlotsPast ? "Clinic Hours Concluded for Today" : "All Slots Fully Booked"}
+                    </p>
+                    <p className={`font-normal mt-0.5 ${allSlotsPast ? "text-amber-800" : "text-red-600"}`}>
+                      {allSlotsPast
+                        ? "All consultation sessions for today have concluded. Please select tomorrow or an upcoming clinic date below."
+                        : "All time windows on this date are fully booked. Please select another date."}
+                    </p>
+                  </div>
                 </div>
               )}
             </div>
@@ -612,17 +652,19 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {morningSlots.map((slot) => {
-                            const { full, count, left } = getSlotStatus(slot);
+                            const { full, isPast, unavailable, count, left } = getSlotStatus(slot);
                             const isSelected = formData.selectedSlotId === slot.id;
                             return (
                               <button
                                 key={slot.id}
                                 type="button"
-                                disabled={full}
-                                onClick={() => !full && selectSlot(slot)}
+                                disabled={unavailable}
+                                onClick={() => !unavailable && selectSlot(slot)}
                                 className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center text-center relative ${
-                                  full
-                                    ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60"
+                                  isPast
+                                    ? "border-slate-100 bg-slate-50/70 text-slate-400 cursor-not-allowed opacity-50 select-none"
+                                    : full
+                                    ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60 select-none"
                                     : isSelected
                                     ? "border-rose-400 bg-gradient-to-br from-rose-50 to-pink-50 shadow-md shadow-rose-100 ring-2 ring-rose-300/30 scale-[1.02]"
                                     : "border-slate-100 bg-white hover:border-rose-300 hover:bg-rose-50/30 cursor-pointer"
@@ -630,17 +672,21 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                               >
                                 <Clock
                                   className={`w-4 h-4 mb-1.5 ${
-                                    full ? "text-slate-300" : isSelected ? "text-rose-500" : "text-slate-400"
+                                    unavailable ? "text-slate-300" : isSelected ? "text-rose-500" : "text-slate-400"
                                   }`}
                                 />
                                 <span
                                   className={`text-xs font-bold ${
-                                    full ? "text-slate-400" : isSelected ? "text-rose-950" : "text-slate-800"
+                                    unavailable ? "text-slate-400" : isSelected ? "text-rose-950" : "text-slate-800"
                                   }`}
                                 >
                                   {slot.label}
                                 </span>
-                                {full ? (
+                                {isPast ? (
+                                  <span className="mt-1.5 text-[9px] font-black uppercase bg-slate-200/80 text-slate-500 px-2 py-0.5 rounded-full">
+                                    Past Session
+                                  </span>
+                                ) : full ? (
                                   <span className="mt-1.5 text-[9px] font-black uppercase bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
                                     Fully Booked
                                   </span>
@@ -668,17 +714,19 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {afternoonSlots.map((slot) => {
-                            const { full, count, left } = getSlotStatus(slot);
+                            const { full, isPast, unavailable, count, left } = getSlotStatus(slot);
                             const isSelected = formData.selectedSlotId === slot.id;
                             return (
                               <button
                                 key={slot.id}
                                 type="button"
-                                disabled={full}
-                                onClick={() => !full && selectSlot(slot)}
+                                disabled={unavailable}
+                                onClick={() => !unavailable && selectSlot(slot)}
                                 className={`p-4 rounded-2xl border-2 transition-all flex flex-col items-center justify-center text-center relative ${
-                                  full
-                                    ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60"
+                                  isPast
+                                    ? "border-slate-100 bg-slate-50/70 text-slate-400 cursor-not-allowed opacity-50 select-none"
+                                    : full
+                                    ? "border-slate-100 bg-slate-50 text-slate-400 cursor-not-allowed opacity-60 select-none"
                                     : isSelected
                                     ? "border-rose-400 bg-gradient-to-br from-rose-50 to-pink-50 shadow-md shadow-rose-100 ring-2 ring-rose-300/30 scale-[1.02]"
                                     : "border-slate-100 bg-white hover:border-rose-300 hover:bg-rose-50/30 cursor-pointer"
@@ -686,17 +734,21 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                               >
                                 <Clock
                                   className={`w-4 h-4 mb-1.5 ${
-                                    full ? "text-slate-300" : isSelected ? "text-rose-500" : "text-slate-400"
+                                    unavailable ? "text-slate-300" : isSelected ? "text-rose-500" : "text-slate-400"
                                   }`}
                                 />
                                 <span
                                   className={`text-xs font-bold ${
-                                    full ? "text-slate-400" : isSelected ? "text-rose-950" : "text-slate-800"
+                                    unavailable ? "text-slate-400" : isSelected ? "text-rose-950" : "text-slate-800"
                                   }`}
                                 >
                                   {slot.label}
                                 </span>
-                                {full ? (
+                                {isPast ? (
+                                  <span className="mt-1.5 text-[9px] font-black uppercase bg-slate-200/80 text-slate-500 px-2 py-0.5 rounded-full">
+                                    Past Session
+                                  </span>
+                                ) : full ? (
                                   <span className="mt-1.5 text-[9px] font-black uppercase bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
                                     Fully Booked
                                   </span>

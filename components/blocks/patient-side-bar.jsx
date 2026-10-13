@@ -116,7 +116,7 @@ export function PatientSidebar({ className = "", children, user = null, logoutAc
 
         {/* Footer Logout */}
         <div className="mt-auto border-t border-sidebar-border bg-sidebar-accent/10 p-4">
-          <form action={logoutAction}>
+          <form action={logoutAction || "/auth/logout"}>
             <button
               type="submit"
               className={`w-full flex items-center rounded-xl transition-all duration-200 group text-sidebar-foreground/70 hover:bg-destructive/10 hover:text-destructive ${

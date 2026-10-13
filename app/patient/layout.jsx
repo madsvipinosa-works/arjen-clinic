@@ -29,7 +29,7 @@ export default async function PatientLayout({ children }) {
         </Link>
 
         <div className="flex items-center gap-2">
-          <form action={logout}>
+          <form action={logout || "/auth/logout"}>
             <button 
               type="submit" 
               className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-muted text-xs flex items-center gap-1"

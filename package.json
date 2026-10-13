@@ -3,9 +3,13 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next dev",
+    "dev:turbo": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next dev --turbo",
+    "dev:webpack": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next dev --webpack",
+    "build": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next build",
+    "start": "node --max-old-space-size=2048 ./node_modules/next/dist/bin/next start",
+    "clean": "node -e \"const fs = require('fs'); fs.rmSync('.next', { recursive: true, force: true }); console.log('.next cache cleaned');\"",
+    "dev:clean": "npm run clean && npm run dev",
     "lint": "eslint"
   },
   "dependencies": {

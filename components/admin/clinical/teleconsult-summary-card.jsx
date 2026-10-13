@@ -7,6 +7,7 @@ import {
   CheckCircle2, User, Sparkles, AlertTriangle 
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { formatRelativeConsultationTime } from '@/lib/utils';
 
 export function TeleconsultSummaryCard({
   patientId,
@@ -20,7 +21,9 @@ export function TeleconsultSummaryCard({
 
   // Format timestamp of last message
   let formattedTime = 'No messages';
+  let relativeTime = '';
   if (lastMessage?.created_at) {
+    relativeTime = formatRelativeConsultationTime(lastMessage.created_at);
     const d = new Date(lastMessage.created_at);
     formattedTime = d.toLocaleDateString('en-PH', {
       month: 'short',
@@ -95,11 +98,13 @@ export function TeleconsultSummaryCard({
                 ({lastMessage?.sender_role === 'patient' ? 'Patient' : 'Staff'})
               </span>
             </span>
-            <span className="text-[11px] font-medium text-gray-400">{formattedTime}</span>
+            <span className="text-[11px] font-medium text-gray-400">
+              {relativeTime ? `${relativeTime} (${formattedTime})` : formattedTime}
+            </span>
           </div>
 
           <p className="text-sm text-gray-800 italic bg-white p-3 rounded-xl border border-gray-100 shadow-2xs line-clamp-2">
-            &ldquo;{lastMessage?.message_text}&rdquo;
+            &ldquo;{lastMessage?.content || lastMessage?.message_text}&rdquo;
           </p>
 
           {lastMessage?.is_flagged_urgent && (

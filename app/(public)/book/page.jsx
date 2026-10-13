@@ -10,7 +10,7 @@ async function getScheduleContext(supabase, user) {
   // Active configurable time slots
   const { data: slots } = await supabase
     .from("time_slots")
-    .select("id, label, max_capacity")
+    .select("id, label, max_capacity, start_time, end_time")
     .eq("is_active", true)
     .order("sort_order", { ascending: true });
 
@@ -124,7 +124,7 @@ export default async function BookingPage({ searchParams }) {
               <span className="inline-block px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-[10px] font-black uppercase tracking-wider mb-1">Smart Triage: Auto-Approved</span>
               <h3 className="font-black text-xl text-emerald-950">You're all set!</h3>
               <p className="font-medium text-sm text-emerald-700 max-w-sm mx-auto leading-relaxed">
-                Your routine prenatal checkup has been instantly approved without waiting for staff review. A confirmation SMS is on its way.
+                Your appointment has been instantly approved without waiting for staff review. A confirmation email with your schedule and clinic reminders has been sent to your inbox.
               </p>
             </div>
           </div>
@@ -132,7 +132,7 @@ export default async function BookingPage({ searchParams }) {
           <div className="bg-emerald-50 text-emerald-800 p-4 sm:p-5 rounded-2xl mb-6 flex items-center justify-center gap-3 border border-emerald-200 shadow-md animate-in fade-in slide-in-from-top-4 duration-500">
             <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
             <span className="font-bold text-sm sm:text-base">
-              Perfect! Your appointment request has been securely submitted and is pending review.
+              Perfect! Your appointment request has been securely submitted. A confirmation email has been sent to your inbox while clinic staff finalize your slot.
             </span>
           </div>
         ) : null}
