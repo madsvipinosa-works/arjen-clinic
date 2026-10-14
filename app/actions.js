@@ -570,7 +570,7 @@ export async function markPatientReturning(ticketNumber) {
 
   const { data: appt, error: findErr } = await supabaseServer
     .from('appointments')
-    .select('id, triage_status')
+    .select('id, triage_status, queue_ticket_number')
     .eq('appointment_date', todayStr)
     .eq('queue_ticket_number', ticketNumber.trim())
     .single();
@@ -590,10 +590,47 @@ export async function markPatientReturning(ticketNumber) {
     return { success: false, error: updateErr.message };
   }
 
+  // Statutory immutable DPA 2012 audit log (RA 10173)
+  await logAuditEvent({
+    action: 'UPDATE_TRIAGE_STATUS',
+    entityType: 'appointments',
+    entityId: appt.id,
+    details: {
+      ticketNumber: ticketNumber.trim(),
+      oldStatus: appt.triage_status,
+      newStatus: 'Returning',
+      origin: 'mobile_pocket_tracker',
+      timestamp: new Date().toISOString()
+    },
+    userOverride: {
+      id: null,
+      email: 'patient-mobile-tracker',
+      user_metadata: { role: 'PATIENT' }
+    }
+  });
+
   revalidatePath('/admin/appointments');
   revalidatePath('/queue');
-  return { success: true };
+  return { success: true, timestamp: new Date().toISOString() };
 }
+
+/**
+ * Service duration reference table in minutes for community lying-in clinics
+ */
+const CLINIC_SERVICE_DURATION_MINS = {
+  'Labor & Delivery': 25,
+  'Labor Intake': 25,
+  'Delivery': 25,
+  'Prenatal Checkup': 12,
+  'Prenatal Consultation': 12,
+  'Postpartum Care': 10,
+  'Newborn Care': 10,
+  'Immunization': 8,
+  'General Consultation': 8,
+  'Family Planning': 8,
+  'Consultation': 8,
+  'Default': 10,
+};
 
 /**
  * fetchTicketStatus(ticketNumber)
@@ -638,16 +675,61 @@ export async function fetchTicketStatus(ticketNumber) {
 
   const myCheckedInTime = myAppt.checked_in_at ? new Date(myAppt.checked_in_at).getTime() : 0;
   
-  const patientsAhead = (queueList || []).filter((a) => {
+  const unservedAhead = (queueList || []).filter((a) => {
     if (a.id === myAppt.id) return false;
     if (a.status === 'Completed' || a.triage_status === 'Discharged') return false;
     const aTime = a.checked_in_at ? new Date(a.checked_in_at).getTime() : 0;
     if (['vital signs', 'consultation'].includes(a.triage_status?.toLowerCase())) return true;
     if (a.triage_status?.toLowerCase() === 'waiting' && aTime < myCheckedInTime) return true;
     return false;
-  }).length;
+  });
 
-  const estWaitMins = Math.max(5, patientsAhead * 12);
+  const patientsAhead = unservedAhead.length;
+
+  // Calibrate wait time based on actual service types of patients ahead
+  let totalEstMinutes = 0;
+  let prenatalCount = 0;
+  let consultCount = 0;
+  let laborCount = 0;
+
+  for (const aheadAppt of unservedAhead) {
+    const serviceKey = aheadAppt.service_type || 'Default';
+    const lowerService = serviceKey.toLowerCase();
+    let duration = CLINIC_SERVICE_DURATION_MINS[serviceKey];
+    if (!duration) {
+      if (lowerService.includes('labor') || lowerService.includes('delivery')) {
+        duration = 25;
+      } else if (lowerService.includes('prenatal')) {
+        duration = 12;
+      } else if (lowerService.includes('postpartum') || lowerService.includes('newborn') || lowerService.includes('pedia')) {
+        duration = 10;
+      } else if (lowerService.includes('family') || lowerService.includes('immuniz') || lowerService.includes('vaccin') || lowerService.includes('consult')) {
+        duration = 8;
+      } else {
+        duration = CLINIC_SERVICE_DURATION_MINS['Default'];
+      }
+    }
+
+    if (lowerService.includes('labor') || lowerService.includes('delivery')) {
+      laborCount++;
+    } else if (lowerService.includes('prenatal')) {
+      prenatalCount++;
+    } else {
+      consultCount++;
+    }
+
+    // If currently inside the consultation room, estimate remaining half-session
+    if (aheadAppt.triage_status?.toLowerCase() === 'consultation') {
+      totalEstMinutes += Math.max(3, Math.round(duration * 0.5));
+    } else if (aheadAppt.triage_status?.toLowerCase() === 'vital signs') {
+      // Vitals take ~3 mins plus full consult duration
+      totalEstMinutes += duration + 3;
+    } else {
+      totalEstMinutes += duration;
+    }
+  }
+
+  const estWaitMins = Math.max(5, totalEstMinutes);
 
   return {
     success: true,
@@ -662,6 +744,11 @@ export async function fetchTicketStatus(ticketNumber) {
     nowInTriage: currentVitals ? currentVitals.queue_ticket_number : '—',
     patientsAhead,
     estimatedWaitMinutes: estWaitMins,
+    serviceBreakdown: {
+      prenatalCount,
+      consultCount,
+      laborCount,
+    },
   };
 }
 
