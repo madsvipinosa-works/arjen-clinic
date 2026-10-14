@@ -137,6 +137,14 @@
   - **6-Category Semantic Domain Mapping & Badges:** Categorized actions into `Clinical / PHI`, `Patient Directory`, `Triage & Queue`, `Telehealth`, `System & Schedule`, and `Deletions & Exports` with custom Magic UI badge colors.
   - **Dual-Mode Metadata Inspector Drawer:** Upgraded log inspection with tabbed view switching between a structured Bento metrics breakdown (Actor, Target, Timestamp, Key/Value pairs) and syntax-highlighted Raw JSON with a 1-click `Copy JSON` clipboard button.
   - **Ergonomic Client-Side Pagination:** Added configurable pagination (25 / 50 / 100 entries per page) with page jump controls, record bounds counter, and a collapsible statutory compliance guidance card explaining RA 10173 and DOH 5-year retention mandates.
+- **Priority 12: Module 9 System Settings & Profile Hardening (Completed Oct 2026):**
+  - **Strict Session Authentication & RBAC Route Guard (`page.jsx`):** Eliminated unauthenticated settings access; enforced `canManageSystemSettings(role)` with standard statutory Access Restricted warning and automatic redirection to `/admin/login`.
+  - **Production Supabase Auth Credential Mutation (`app/actions.js`):** Replaced non-functional rejection with live `supabaseServer.auth.updateUser` execution for admin passwords and emails, synced with `public.users` and `admin_credentials`, and recorded immutable `UPDATE_ADMIN_CREDENTIALS` DPA audit logs.
+  - **Clinic Profile DPA Audit Logging & Extended Fields (`app/actions.js`):** Instrumented `updateSettings` with `UPDATE_CLINIC_PROFILE` audit logging and persisted `emergency_notice` (clinical referral advisory) and `footer_email`.
+  - **Magic UI 3-Tab SettingsManager Component (`settings-manager.jsx`):** Replaced static full-page server forms with a responsive 3-tab Bento layout (`Clinic Profile`, `Security & Credentials`, `System Diagnostics`) powered by non-blocking `useTransition` and micro-animated `✓ Saved` feedback badges.
+  - **Real-Time Philippine Contact Masking:** Enforced automatic formatting (`09XX-XXX-XXXX` and `(046) XXX-XXXX`) with instant visual validation badges (`✓ Valid PH Mobile` vs `⚠️ Incomplete Contact Number`).
+  - **Real-Time Password Confirmation & Strength Gauge:** Built client-side strength meter (Weak/Moderate/Strong) with colored progress bar, live match comparison (`✓ Matches` vs `✕ Mismatch`), and show/hide toggles.
+  - **Live System Diagnostics & PHT Clock:** Built real-time ticking Philippine Standard Time clock (`Asia/Manila`, UTC+8) with live pulse, PostgreSQL connection indicator, NodeMailer Gmail SMTP health, and statutory compliance badges (RA 10173, DOH AO 2016-0035, PhilHealth MCP, DOH BEmONC).
 
 ---
 

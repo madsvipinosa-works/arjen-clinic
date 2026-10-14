@@ -1489,25 +1489,62 @@ export async function updatePrenatal(formData) {
 }
 
 /**
+/**
  * updateSettings(formData)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Updates core clinic profile and identity parameters in clinic_settings.
+ * Audited under DPA 2012 (RA 10173).
  */
 export async function updateSettings(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const clinic_name = formData.get('clinic_name');
-  const clinic_address = formData.get('clinic_address');
-  const clinic_contact = formData.get('clinic_contact');
+  const clinic_name = formData.get('clinic_name')?.toString().trim();
+  const clinic_address = formData.get('clinic_address')?.toString().trim();
+  const clinic_contact = formData.get('clinic_contact')?.toString().trim();
+  const footer_email = formData.get('footer_email')?.toString().trim();
+  const emergency_notice = formData.get('emergency_notice')?.toString().trim();
 
-  await supabaseServer.from('clinic_settings').upsert({
+  if (!clinic_name) {
+    return { success: false, error: 'Clinic name cannot be blank.' };
+  }
+
+  const payload = {
     id: 1,
     clinic_name,
     clinic_address,
-    clinic_contact
-  }, { onConflict: 'id' });
+    clinic_contact,
+  };
+
+  if (footer_email !== undefined) payload.footer_email = footer_email;
+  if (emergency_notice !== undefined) payload.emergency_notice = emergency_notice;
+
+  const { error } = await supabaseServer.from('clinic_settings').upsert(payload, { onConflict: 'id' });
+
+  if (error) {
+    console.error('[updateSettings] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // Immutable DPA 2012 Audit Trail
+  await logAuditEvent({
+    action: 'UPDATE_CLINIC_PROFILE',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: {
+      clinic_name,
+      clinic_address,
+      clinic_contact,
+      footer_email,
+      has_emergency_notice: !!emergency_notice,
+    }
+  });
 
   revalidatePath('/admin/settings', 'page');
+  revalidatePath('/admin', 'page');
   revalidatePath('/(public)', 'layout');
+  revalidatePath('/book', 'page');
+  return { success: true, message: 'Clinic profile successfully updated.' };
 }
 
 /**
@@ -2066,9 +2103,101 @@ export async function deleteAttachment(formData) {
 
 /**
  * updateAdminCredentials(formData)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Updates administrative user credentials (password, email, display name)
+ * through Supabase Auth, synchronized with public.users.
+ * Audited under DPA 2012 (RA 10173).
  */
 export async function updateAdminCredentials(formData) {
-  return { success: false, error: 'Admin credentials are now managed exclusively via central Auth Provider.' };
+  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+
+  const supabaseServer = await createClient();
+  const { data: { user }, error: userErr } = await supabaseServer.auth.getUser();
+  if (userErr || !user) {
+    return { success: false, error: 'Authenticated admin session not found.' };
+  }
+
+  const new_username = formData.get('new_username')?.toString().trim();
+  const new_email = formData.get('new_email')?.toString().trim();
+  const new_password = formData.get('new_password')?.toString().trim();
+  const confirm_password = formData.get('confirm_password')?.toString().trim();
+
+  if (!new_password && !new_email && !new_username) {
+    return { success: false, error: 'No credential updates provided.' };
+  }
+
+  // Pre-validation for password changes
+  if (new_password) {
+    if (new_password.length < 8) {
+      return { success: false, error: 'New password must be at least 8 characters long.' };
+    }
+    if (new_password !== confirm_password) {
+      return { success: false, error: 'New password and confirm password do not match.' };
+    }
+  }
+
+  // 1. Update Supabase Auth if password or email is changing
+  const authPayload = {};
+  if (new_password) authPayload.password = new_password;
+  if (new_email && new_email !== user.email) authPayload.email = new_email;
+
+  if (Object.keys(authPayload).length > 0) {
+    const { error: authUpdateError } = await supabaseServer.auth.updateUser(authPayload);
+    if (authUpdateError) {
+      console.error('[updateAdminCredentials] auth error:', authUpdateError.message);
+      return { success: false, error: authUpdateError.message };
+    }
+  }
+
+  // 2. Synchronize public.users table
+  const userUpdates = {};
+  if (new_email && new_email !== user.email) userUpdates.email = new_email;
+  if (new_username) userUpdates.full_name = new_username;
+
+  if (Object.keys(userUpdates).length > 0) {
+    const { error: userTableError } = await supabaseServer
+      .from('users')
+      .update(userUpdates)
+      .eq('id', user.id);
+
+    if (userTableError) {
+      console.warn('[updateAdminCredentials] users table sync warning:', userTableError.message);
+    }
+  }
+
+  // 3. Fallback sync for admin_credentials table if present
+  try {
+    const adminCredUpdates = { updated_at: new Date().toISOString() };
+    if (new_email) adminCredUpdates.email = new_email;
+    if (new_username) adminCredUpdates.username = new_username;
+    await supabaseServer
+      .from('admin_credentials')
+      .update(adminCredUpdates)
+      .eq('email', user.email);
+  } catch (err) {
+    // Non-blocking fallback
+  }
+
+  // 4. Record Immutable DPA 2012 Audit Event
+  await logAuditEvent({
+    action: 'UPDATE_ADMIN_CREDENTIALS',
+    entityType: 'users',
+    entityId: user.id,
+    details: {
+      passwordChanged: !!new_password,
+      emailChanged: !!(new_email && new_email !== user.email),
+      usernameChanged: !!new_username,
+      actorEmail: user.email,
+    }
+  });
+
+  revalidatePath('/admin/settings', 'page');
+  return { 
+    success: true, 
+    message: new_email && new_email !== user.email 
+      ? 'Credentials updated. A confirmation email has been sent to your new email address.'
+      : 'Admin credentials successfully updated.' 
+  };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
