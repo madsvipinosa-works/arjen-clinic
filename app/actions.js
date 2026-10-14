@@ -153,6 +153,20 @@ export async function createPatient(formData) {
     .from('prenatal_records')
     .insert({ patient_id: patientRow.id, modular_data: {} });
 
+  // DPA Audit Trail
+  await logAuditEvent({
+    action: 'CREATE_PATIENT',
+    entityType: 'patients',
+    entityId: patientRow.id,
+    details: {
+      full_name: newPatient.full_name,
+      age: newPatient.age,
+      is_high_risk: newPatient.is_high_risk,
+      blood_type: newPatient.blood_type,
+      lmp: lmp || null,
+    }
+  });
+
   revalidatePath('/admin/patients');
   redirect(`/admin/patients/${patientRow.id}`);
 }
@@ -193,6 +207,20 @@ export async function updatePatient(formData) {
     return { success: false, error: error.message };
   }
 
+  // DPA Audit Trail
+  await logAuditEvent({
+    action: 'UPDATE_PATIENT',
+    entityType: 'patients',
+    entityId: id,
+    details: {
+      full_name: updateData.full_name,
+      age: updateData.age,
+      is_high_risk: updateData.is_high_risk,
+      blood_type: updateData.blood_type,
+      allergies: updateData.allergies,
+    }
+  });
+
   revalidatePath(`/admin/patients/${id}`);
   revalidatePath('/admin/patients');
   return { success: true };
@@ -229,6 +257,21 @@ export async function createMaternalEpisode(formData) {
     console.error('[createMaternalEpisode] error:', error.message);
     return { success: false, error: error.message };
   }
+
+  // DPA Audit Trail
+  await logAuditEvent({
+    action: 'CREATE_MATERNAL_EPISODE',
+    entityType: 'maternal_episodes',
+    entityId: patient_id,
+    details: {
+      patient_id,
+      lmp,
+      edc,
+      gravida: newEpisode.gravida,
+      para: newEpisode.para,
+      status: newEpisode.status,
+    }
+  });
 
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
@@ -1512,6 +1555,12 @@ export async function addBlockedDate(formData) {
 
   if (blocked_date) {
     await supabaseServer.from('blocked_dates').insert({ blocked_date, reason });
+    await logAuditEvent({
+      action: 'ADD_BLOCKED_DATE',
+      entityType: 'blocked_dates',
+      entityId: null,
+      details: { blocked_date, reason }
+    });
   }
 
   revalidatePath('/admin/schedule', 'page');
@@ -1528,6 +1577,12 @@ export async function removeBlockedDate(formData) {
   const id = formData.get('id');
   if (id) {
     await supabaseServer.from('blocked_dates').delete().eq('id', id);
+    await logAuditEvent({
+      action: 'REMOVE_BLOCKED_DATE',
+      entityType: 'blocked_dates',
+      entityId: id,
+      details: { id }
+    });
   }
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
@@ -1580,6 +1635,13 @@ export async function addTimeSlot(formData) {
 
   await supabaseServer.from('time_slots').insert({ label, start_time, end_time, max_capacity, sort_order });
 
+  await logAuditEvent({
+    action: 'ADD_TIME_SLOT',
+    entityType: 'time_slots',
+    entityId: null,
+    details: { label, start_time, end_time, max_capacity, sort_order }
+  });
+
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
 }
@@ -1626,6 +1688,13 @@ export async function updateTimeSlot(formData) {
     .update({ label, start_time, end_time, max_capacity })
     .eq('id', id);
 
+  await logAuditEvent({
+    action: 'UPDATE_TIME_SLOT',
+    entityType: 'time_slots',
+    entityId: id,
+    details: { label, start_time, end_time, max_capacity }
+  });
+
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
 }
@@ -1640,6 +1709,12 @@ export async function deleteTimeSlot(formData) {
   const id = formData.get('id');
   if (id) {
     await supabaseServer.from('time_slots').delete().eq('id', id);
+    await logAuditEvent({
+      action: 'DELETE_TIME_SLOT',
+      entityType: 'time_slots',
+      entityId: id,
+      details: { id }
+    });
   }
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
@@ -1656,6 +1731,12 @@ export async function updateTimeSlotCapacity(formData) {
   const max_capacity = parseInt(formData.get('max_capacity') || 10, 10);
   if (id) {
     await supabaseServer.from('time_slots').update({ max_capacity }).eq('id', id);
+    await logAuditEvent({
+      action: 'UPDATE_TIME_SLOT_CAPACITY',
+      entityType: 'time_slots',
+      entityId: id,
+      details: { max_capacity }
+    });
   }
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
@@ -1670,6 +1751,14 @@ export async function toggleSaturdayBlock(formData) {
   const supabaseServer = await createClient();
   const block_saturday = formData.get('block_saturday') === 'true';
   await supabaseServer.from('clinic_settings').update({ block_saturday }).eq('id', 1);
+
+  await logAuditEvent({
+    action: 'UPDATE_WEEKEND_POLICY',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { day: 'Saturday', block_saturday }
+  });
+
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
 }
@@ -1683,6 +1772,14 @@ export async function toggleSundayBlock(formData) {
   const supabaseServer = await createClient();
   const block_sunday = formData.get('block_sunday') === 'true';
   await supabaseServer.from('clinic_settings').update({ block_sunday }).eq('id', 1);
+
+  await logAuditEvent({
+    action: 'UPDATE_WEEKEND_POLICY',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { day: 'Sunday', block_sunday }
+  });
+
   revalidatePath('/admin/schedule', 'page');
   revalidatePath('/book', 'page');
 }
@@ -1707,6 +1804,13 @@ export async function cancelAppointment(formData) {
     console.error('[cancelAppointment] error:', error.message);
     return { success: false, error: error.message };
   }
+
+  await logAuditEvent({
+    action: 'CANCEL_APPOINTMENT',
+    entityType: 'appointments',
+    entityId: id,
+    details: { id }
+  });
 
   revalidatePath('/patient');
   revalidatePath('/patient/appointments');

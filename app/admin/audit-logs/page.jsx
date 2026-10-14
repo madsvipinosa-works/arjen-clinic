@@ -65,7 +65,11 @@ export default async function AuditLogsPage() {
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
-      <AuditLogsViewer logs={logs || []} currentUserRole={userData?.role} />
+      <AuditLogsViewer 
+        logs={logs || []} 
+        currentUserRole={userData?.role} 
+        currentUserEmail={user.email} 
+      />
     </div>
   );
 }
