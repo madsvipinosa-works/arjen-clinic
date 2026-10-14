@@ -145,6 +145,14 @@
   - **Real-Time Philippine Contact Masking:** Enforced automatic formatting (`09XX-XXX-XXXX` and `(046) XXX-XXXX`) with instant visual validation badges (`✓ Valid PH Mobile` vs `⚠️ Incomplete Contact Number`).
   - **Real-Time Password Confirmation & Strength Gauge:** Built client-side strength meter (Weak/Moderate/Strong) with colored progress bar, live match comparison (`✓ Matches` vs `✕ Mismatch`), and show/hide toggles.
   - **Live System Diagnostics & PHT Clock:** Built real-time ticking Philippine Standard Time clock (`Asia/Manila`, UTC+8) with live pulse, PostgreSQL connection indicator, NodeMailer Gmail SMTP health, and statutory compliance badges (RA 10173, DOH AO 2016-0035, PhilHealth MCP, DOH BEmONC).
+- **Priority 13: Module 10 Public Lobby TV Queue Display Hardening (Completed Oct 2026):**
+  - **Decoupled Realtime WebSocket Subscription:** Eliminated channel tear-down thrashing by decoupling the Supabase stream from the audio toggle state and utilizing `audioEnabledRef`.
+  - **Live WebSocket Heartbeat Status Indicator:** Integrated channel status tracking (`SUBSCRIBED`, `CLOSED`, `CHANNEL_ERROR`) and browser network state listeners to render a live pulsing indicator (🟢 Live WebSocket / 🟡 Reconnecting / 🔴 Offline Polling).
+  - **Autonomous First-Gesture Audio Unlocker:** Solved browser autoplay blocking with global first-gesture listeners (`click`, `keydown`, `touchstart`) and a high-visibility Magic UI floating sound prompt (*"Click anywhere or press Spacebar to enable live clinic voice calling"*).
+  - **Double-Call Natural Voice Vocalizer (`en-PH` Voice Tuning):** Spaced ticket character pronunciation (`P 0 4`) and implemented double-call cadence with Filipino English voice adaptation for acoustic clarity in busy waiting lounges.
+  - **Stepped-Out "Returning" Patient Recall Callout:** Enhanced `nowCalling` with a distinct Cyan glowing beacon (`RECALL: RETURNING PATIENT`) and customized audio announcements for patients returning from outside.
+  - **Header Queue Velocity Summary Bar:** Added quick situational awareness counters (Total Patients Today, In Consult, In Triage, Waiting in Lobby).
+  - **Kiosk Hotkeys & Anti-Burn-In Protection:** Added full-screen and kiosk controls (`F` for Fullscreen, `M`/`Space` to Mute/Unmute, `R` to Refresh) and slow ambient breathing gradients to prevent LED/OLED pixel burn-in over 24/7 continuous operation.
 
 ---
 
