@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -33,13 +34,13 @@ import {
 } from "@/lib/utils";
 import { useFormStatus } from "react-dom";
 
-function SubmitButton() {
+function SubmitButton({ disabled }) {
   const { pending } = useFormStatus();
   return (
     <Button
       type="submit"
-      disabled={pending}
-      className="bg-rose-500 hover:bg-rose-600 text-white rounded-full px-8 sm:px-10 flex items-center justify-center gap-2.5 h-12 w-full sm:w-auto text-sm sm:text-base font-bold shadow-xl shadow-rose-300/40 transition-all hover:scale-105 active:scale-95 disabled:opacity-50"
+      disabled={pending || disabled}
+      className="bg-rose-500 hover:bg-rose-600 text-white rounded-full px-8 sm:px-10 flex items-center justify-center gap-2.5 h-12 w-full sm:w-auto text-sm sm:text-base font-bold shadow-xl shadow-rose-300/40 transition-all hover:scale-105 active:scale-95 disabled:opacity-50 cursor-pointer"
     >
       {pending ? (
         <>
@@ -63,7 +64,10 @@ const DEFAULT_SERVICES = [
   { id: "general", title: "General Consultation", description: "Maternal checkups, health questions & prescriptions", icon: Stethoscope },
 ];
 
-export function BookingWizard({ formAction, scheduleContext = {} }) {
+function BookingWizardInner({ formAction, scheduleContext = {} }) {
+  const searchParams = useSearchParams();
+  const serviceQueryParam = searchParams?.get("service") || "";
+
   const {
     timeSlots = [],
     blockedDates = [],
@@ -76,16 +80,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
   } = scheduleContext;
 
   const [step, setStep] = useState(1);
-  const [formData, setFormData] = useState({
-    booking_for: "myself", // "myself" | "dependent"
-    patient_name: "",
-    relationship: "",
-    service_type: "",
-    appointment_date: "",
-    time: "",           // stores slot label sent to server
-    selectedSlotId: "", // tracks slot by unique ID
-    notes: "",
-  });
+  const [dpaConsentChecked, setDpaConsentChecked] = useState(false);
 
   const activeServices = useMemo(() => {
     if (services && services.length > 0) {
@@ -100,11 +95,53 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
     return DEFAULT_SERVICES;
   }, [services]);
 
+  // Match initial service from URL query if provided
+  const initialMatchedService = useMemo(() => {
+    if (!serviceQueryParam) return "";
+    const clean = serviceQueryParam.toLowerCase();
+    const found = activeServices.find((s) => 
+      s.id.toLowerCase() === clean || s.title.toLowerCase().includes(clean)
+    );
+    return found ? found.id : "";
+  }, [serviceQueryParam, activeServices]);
+
+  const [formData, setFormData] = useState({
+    booking_for: "myself", // "myself" | "dependent"
+    patient_name: "",
+    relationship: "",
+    service_type: initialMatchedService,
+    appointment_date: "",
+    time: "",           // stores slot label sent to server
+    selectedSlotId: "", // tracks slot by unique ID
+    notes: "",
+  });
+
+  // Keep service_type in sync if query param changes
+  useEffect(() => {
+    if (initialMatchedService && !formData.service_type) {
+      setFormData((prev) => ({ ...prev, service_type: initialMatchedService }));
+    }
+  }, [initialMatchedService, formData.service_type]);
+
   const today = useMemo(() => getClinicTodayDateString(), []);
 
-  // Quick next 7 days chips in Philippine Standard Time
+  // Check if current selected service qualifies for Smart Triage Auto-Approval
+  const isRoutineSmartTriage = useMemo(() => {
+    const s = (formData.service_type || "").toLowerCase();
+    return (
+      s.includes("prenatal") ||
+      s.includes("routine") ||
+      s.includes("consult") ||
+      s.includes("general") ||
+      s.includes("family")
+    );
+  }, [formData.service_type]);
+
+  // Quick next 7 days chips in Philippine Standard Time with Daily Load Aggregation
   const quickDates = useMemo(() => {
     const dates = [];
+    const totalDailyCapacity = timeSlots.reduce((sum, s) => sum + (s.max_capacity || 10), 0) || 30;
+
     for (let i = 0; i < 7; i++) {
       const isoStr = getClinicDateOffset(i);
       const d = new Date(isoStr + "T00:00:00");
@@ -113,16 +150,43 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
       const dayOfWeek = d.getDay();
       const isClosed = (dayOfWeek === 6 && blockSaturday) || (dayOfWeek === 0 && blockSunday) || blockedDates.includes(isoStr);
       const allSlotsExpiredForDate = areAllSlotsExpired(timeSlots, isoStr);
+
+      const dayBookings = loadMap[isoStr] ? Object.values(loadMap[isoStr]).reduce((a, b) => a + b, 0) : 0;
+      const dayLoadPct = Math.min(100, Math.round((dayBookings / totalDailyCapacity) * 100));
+
+      let availabilityTag = "Open";
+      let tagColor = "text-emerald-600";
+
+      if (isClosed) {
+        availabilityTag = "Closed";
+        tagColor = "text-slate-400";
+      } else if (allSlotsExpiredForDate) {
+        availabilityTag = "Concluded";
+        tagColor = "text-amber-600";
+      } else if (dayLoadPct >= 100) {
+        availabilityTag = "Full";
+        tagColor = "text-red-600";
+      } else if (dayLoadPct >= 80) {
+        availabilityTag = "Few Left";
+        tagColor = "text-rose-600";
+      } else if (dayLoadPct >= 40) {
+        availabilityTag = "Moderate";
+        tagColor = "text-slate-600";
+      }
+
       dates.push({
         iso: isoStr,
         dayName,
         monthDay,
         isClosed,
         allSlotsExpiredForDate,
+        dayLoadPct,
+        availabilityTag,
+        tagColor,
       });
     }
     return dates;
-  }, [blockSaturday, blockSunday, blockedDates, timeSlots]);
+  }, [blockSaturday, blockSunday, blockedDates, timeSlots, loadMap]);
 
   const updateField = (field, value) => {
     setFormData((prev) => {
@@ -159,14 +223,64 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
   const isDateWeekend = isWeekendBlocked(selectedDate);
   const dateUnavailable = isDateBlocked || isDateWeekend;
 
+  // Enhanced slot status with visual percentage and color-graded load badge
   const getSlotStatus = (slot) => {
-    if (!selectedDate) return { full: false, isPast: false, unavailable: false, count: 0, left: slot.max_capacity };
+    if (!selectedDate) {
+      return {
+        full: false,
+        isPast: false,
+        unavailable: false,
+        count: 0,
+        left: slot.max_capacity,
+        pct: 0,
+        loadBadge: {
+          label: `${slot.max_capacity} spots`,
+          color: "text-emerald-700 bg-emerald-50 border-emerald-200",
+          barColor: "bg-emerald-500",
+        },
+      };
+    }
+
     const count = loadMap[selectedDate]?.[slot.label] || 0;
     const left = Math.max(0, slot.max_capacity - count);
     const full = count >= slot.max_capacity;
     const isPast = isSlotExpired(slot, selectedDate);
     const unavailable = full || isPast;
-    return { full, isPast, unavailable, count, left };
+    const pct = Math.min(100, Math.round((count / (slot.max_capacity || 1)) * 100));
+
+    let loadBadge = {
+      label: `${left} spot${left !== 1 ? "s" : ""} left`,
+      color: "text-emerald-700 bg-emerald-50 border-emerald-200",
+      barColor: "bg-emerald-500",
+    };
+
+    if (isPast) {
+      loadBadge = {
+        label: "Past Session",
+        color: "text-slate-500 bg-slate-100 border-slate-200",
+        barColor: "bg-slate-300",
+      };
+    } else if (full) {
+      loadBadge = {
+        label: "Fully Booked",
+        color: "text-red-700 bg-red-50 border-red-200",
+        barColor: "bg-red-500",
+      };
+    } else if (left <= 2) {
+      loadBadge = {
+        label: `Almost Full (${left} left)`,
+        color: "text-rose-700 bg-rose-50 border-rose-200",
+        barColor: "bg-rose-500",
+      };
+    } else if (pct >= 60) {
+      loadBadge = {
+        label: `Filling Fast (${left} left)`,
+        color: "text-amber-700 bg-amber-50 border-amber-200",
+        barColor: "bg-amber-500",
+      };
+    }
+
+    return { full, isPast, unavailable, count, left, pct, loadBadge };
   };
 
   const allSlotsUnavailable =
@@ -209,9 +323,14 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
     return true;
   };
 
+  const step3Valid = () => {
+    return dpaConsentChecked;
+  };
+
   const currentStepIsValid = () => {
     if (step === 1) return step1Valid();
     if (step === 2) return step2Valid();
+    if (step === 3) return step3Valid();
     return true;
   };
 
@@ -351,7 +470,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                 <button
                   type="button"
                   onClick={() => updateField("booking_for", "myself")}
-                  className={`p-4 rounded-2xl border-2 flex items-center gap-3.5 transition-all text-left relative ${
+                  className={`p-4 rounded-2xl border-2 flex items-center gap-3.5 transition-all text-left relative cursor-pointer ${
                     formData.booking_for === "myself"
                       ? "border-rose-400 bg-gradient-to-br from-rose-50/90 to-pink-50/50 shadow-md shadow-rose-100 ring-2 ring-rose-300/30"
                       : "border-slate-100 hover:border-rose-200 bg-white"
@@ -382,7 +501,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                 <button
                   type="button"
                   onClick={() => updateField("booking_for", "dependent")}
-                  className={`p-4 rounded-2xl border-2 flex items-center gap-3.5 transition-all text-left relative ${
+                  className={`p-4 rounded-2xl border-2 flex items-center gap-3.5 transition-all text-left relative cursor-pointer ${
                     formData.booking_for === "dependent"
                       ? "border-rose-400 bg-gradient-to-br from-rose-50/90 to-pink-50/50 shadow-md shadow-rose-100 ring-2 ring-rose-300/30"
                       : "border-slate-100 hover:border-rose-200 bg-white"
@@ -461,7 +580,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                       key={svc.id}
                       type="button"
                       onClick={() => updateField("service_type", svc.id)}
-                      className={`text-left p-4 sm:p-5 border-2 rounded-2xl transition-all duration-200 relative group ${
+                      className={`text-left p-4 sm:p-5 border-2 rounded-2xl transition-all duration-200 relative group cursor-pointer ${
                         isSelected
                           ? "border-rose-400 bg-gradient-to-br from-rose-50/90 to-pink-50/50 shadow-md shadow-rose-100 ring-2 ring-rose-300/30 scale-[1.01]"
                           : "border-slate-100 hover:border-rose-200 hover:bg-slate-50/60"
@@ -504,6 +623,28 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                   );
                 })}
               </div>
+
+              {/* Proactive Smart Triage Eligibility Banner */}
+              {isRoutineSmartTriage && (
+                <div className="p-4 bg-emerald-50/80 border border-emerald-200/90 rounded-2xl flex items-center gap-3.5 text-emerald-950 animate-in fade-in slide-in-from-top-2 shadow-xs">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-500/20">
+                    <Sparkles className="w-4 h-4 animate-spin" />
+                  </div>
+                  <div className="text-xs space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-black uppercase tracking-wider text-[9px] bg-emerald-200/90 text-emerald-900 px-2 py-0.5 rounded-full">
+                        Smart Triage: Instant Confirmation
+                      </span>
+                    </div>
+                    <p className="font-bold text-emerald-950 text-xs sm:text-sm">
+                      Zero Wait Time for Routine Visits
+                    </p>
+                    <p className="text-emerald-700 text-[11px] leading-relaxed">
+                      Routine checkups and consultations are automatically approved by our clinical engine with immediate confirmation.
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -522,7 +663,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
               </p>
             </div>
 
-            {/* Quick 7-Day Chips */}
+            {/* Quick 7-Day Chips with Daily Availability Indicators */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
@@ -564,13 +705,13 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                       >
                         {item.monthDay}
                       </span>
-                      {item.isClosed ? (
-                        <span className="text-[9px] font-bold text-slate-400 mt-0.5">Closed</span>
-                      ) : item.allSlotsExpiredForDate ? (
-                        <span className={`text-[9px] font-bold mt-0.5 ${isSelected ? "text-rose-100" : "text-amber-600"}`}>
-                          Concluded
-                        </span>
-                      ) : null}
+                      <span
+                        className={`text-[9px] font-bold mt-0.5 ${
+                          isSelected ? "text-rose-100" : item.tagColor
+                        }`}
+                      >
+                        {item.availabilityTag}
+                      </span>
                     </button>
                   );
                 })}
@@ -633,7 +774,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
               )}
             </div>
 
-            {/* Time Slot Cards */}
+            {/* Time Slot Cards with Color-Graded Badges & Micro-Progress Bars */}
             {selectedDate && !dateUnavailable && (
               <div className="space-y-6 pt-4 border-t border-slate-100">
                 {timeSlots.length === 0 ? (
@@ -652,7 +793,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {morningSlots.map((slot) => {
-                            const { full, isPast, unavailable, count, left } = getSlotStatus(slot);
+                            const { full, isPast, unavailable, count, left, pct, loadBadge } = getSlotStatus(slot);
                             const isSelected = formData.selectedSlotId === slot.id;
                             return (
                               <button
@@ -682,23 +823,24 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                                 >
                                   {slot.label}
                                 </span>
-                                {isPast ? (
-                                  <span className="mt-1.5 text-[9px] font-black uppercase bg-slate-200/80 text-slate-500 px-2 py-0.5 rounded-full">
-                                    Past Session
-                                  </span>
-                                ) : full ? (
-                                  <span className="mt-1.5 text-[9px] font-black uppercase bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
-                                    Fully Booked
-                                  </span>
-                                ) : (
+
+                                {/* Micro-progress load indicator */}
+                                <div className="w-full mt-2 space-y-1">
                                   <span
-                                    className={`mt-1.5 text-[10px] font-medium ${
-                                      left <= 2 ? "text-amber-600 font-bold" : "text-slate-400"
-                                    }`}
+                                    className={`inline-block text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${loadBadge.color}`}
                                   >
-                                    {left} spot{left !== 1 ? "s" : ""} left
+                                    {loadBadge.label}
                                   </span>
-                                )}
+
+                                  {!unavailable && (
+                                    <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full ${loadBadge.barColor} rounded-full transition-all duration-300`}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
                               </button>
                             );
                           })}
@@ -714,7 +856,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                         </div>
                         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                           {afternoonSlots.map((slot) => {
-                            const { full, isPast, unavailable, count, left } = getSlotStatus(slot);
+                            const { full, isPast, unavailable, count, left, pct, loadBadge } = getSlotStatus(slot);
                             const isSelected = formData.selectedSlotId === slot.id;
                             return (
                               <button
@@ -744,23 +886,24 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                                 >
                                   {slot.label}
                                 </span>
-                                {isPast ? (
-                                  <span className="mt-1.5 text-[9px] font-black uppercase bg-slate-200/80 text-slate-500 px-2 py-0.5 rounded-full">
-                                    Past Session
-                                  </span>
-                                ) : full ? (
-                                  <span className="mt-1.5 text-[9px] font-black uppercase bg-red-100 text-red-600 px-2 py-0.5 rounded-full">
-                                    Fully Booked
-                                  </span>
-                                ) : (
+
+                                {/* Micro-progress load indicator */}
+                                <div className="w-full mt-2 space-y-1">
                                   <span
-                                    className={`mt-1.5 text-[10px] font-medium ${
-                                      left <= 2 ? "text-amber-600 font-bold" : "text-slate-400"
-                                    }`}
+                                    className={`inline-block text-[9px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full border ${loadBadge.color}`}
                                   >
-                                    {left} spot{left !== 1 ? "s" : ""} left
+                                    {loadBadge.label}
                                   </span>
-                                )}
+
+                                  {!unavailable && (
+                                    <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden">
+                                      <div
+                                        className={`h-full ${loadBadge.barColor} rounded-full transition-all duration-300`}
+                                        style={{ width: `${pct}%` }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
                               </button>
                             );
                           })}
@@ -788,6 +931,26 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
               </p>
             </div>
 
+            {/* Proactive Smart Triage Confirmation Banner */}
+            {isRoutineSmartTriage && (
+              <div className="p-4 bg-emerald-50/90 border border-emerald-200/90 rounded-2xl flex items-center gap-3.5 text-emerald-950 shadow-xs">
+                <div className="w-9 h-9 rounded-xl bg-emerald-500 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-500/20">
+                  <Sparkles className="w-4 h-4 animate-spin" />
+                </div>
+                <div className="text-xs space-y-0.5">
+                  <span className="font-black uppercase tracking-wider text-[9px] bg-emerald-200/90 text-emerald-900 px-2 py-0.5 rounded-full inline-block">
+                    ✓ Instant Smart Triage Guaranteed
+                  </span>
+                  <p className="font-bold text-emerald-950 text-sm">
+                    No Waiting for Midwife Review
+                  </p>
+                  <p className="text-emerald-700 text-xs leading-relaxed">
+                    Because this is a low-risk routine checkup, your appointment will be approved immediately upon submission.
+                  </p>
+                </div>
+              </div>
+            )}
+
             {/* Receipt Card with direct Edit jump buttons */}
             <div className="bg-gradient-to-br from-rose-50/80 via-white to-pink-50/40 border-2 border-rose-100 rounded-3xl p-6 sm:p-8 space-y-4 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 right-0 w-32 h-32 bg-rose-200/20 rounded-full blur-2xl pointer-events-none" />
@@ -807,7 +970,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                   variant="ghost"
                   size="sm"
                   onClick={() => jumpToStep(1)}
-                  className="text-rose-600 hover:bg-rose-100/80 rounded-xl text-xs font-bold gap-1 h-8"
+                  className="text-rose-600 hover:bg-rose-100/80 rounded-xl text-xs font-bold gap-1 h-8 cursor-pointer"
                 >
                   <Edit3 className="w-3.5 h-3.5" /> Edit
                 </Button>
@@ -826,7 +989,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                   variant="ghost"
                   size="sm"
                   onClick={() => jumpToStep(1)}
-                  className="text-rose-600 hover:bg-rose-100/80 rounded-xl text-xs font-bold gap-1 h-8"
+                  className="text-rose-600 hover:bg-rose-100/80 rounded-xl text-xs font-bold gap-1 h-8 cursor-pointer"
                 >
                   <Edit3 className="w-3.5 h-3.5" /> Edit
                 </Button>
@@ -848,7 +1011,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
                   variant="ghost"
                   size="sm"
                   onClick={() => jumpToStep(2)}
-                  className="text-rose-600 hover:bg-rose-100/80 rounded-xl text-xs font-bold gap-1 h-8"
+                  className="text-rose-600 hover:bg-rose-100/80 rounded-xl text-xs font-bold gap-1 h-8 cursor-pointer"
                 >
                   <Edit3 className="w-3.5 h-3.5" /> Edit
                 </Button>
@@ -871,6 +1034,25 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
               />
             </div>
 
+            {/* Statutory RA 10173 (DPA 2012) Explicit Consent Checkbox */}
+            <label className="flex items-start gap-3.5 p-4 bg-slate-50/90 border border-slate-200/90 rounded-2xl cursor-pointer hover:bg-slate-100/70 transition-colors shadow-2xs">
+              <input
+                type="checkbox"
+                checked={dpaConsentChecked}
+                onChange={(e) => setDpaConsentChecked(e.target.checked)}
+                className="mt-1 h-4 w-4 rounded border-slate-300 text-rose-600 focus:ring-rose-500 cursor-pointer shrink-0"
+                required
+              />
+              <div className="text-xs text-slate-700 leading-relaxed">
+                <span className="font-bold text-slate-900 block mb-0.5">
+                  Philippine Data Privacy Act of 2012 (RA 10173) Consent <span className="text-rose-500">*</span>
+                </span>
+                <p className="text-slate-500 text-[11px] leading-relaxed">
+                  I consent to the collection and processing of my appointment information and medical notes by AR-JEN Maternity Clinic strictly for clinical scheduling, maternal triage records, and appointment reminders.
+                </p>
+              </div>
+            </label>
+
             {/* Reassurance Notice */}
             <div className="p-4 bg-emerald-50/80 border border-emerald-200 rounded-2xl flex items-start gap-3 text-emerald-900 shadow-sm">
               <ShieldCheck className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
@@ -892,7 +1074,7 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
             type="button"
             onClick={prevStep}
             variant="outline"
-            className="border-slate-200 text-slate-700 hover:bg-white rounded-full h-11 px-6 font-bold text-xs sm:text-sm gap-2"
+            className="border-slate-200 text-slate-700 hover:bg-white rounded-full h-11 px-6 font-bold text-xs sm:text-sm gap-2 cursor-pointer"
           >
             <ArrowLeft className="w-4 h-4" /> Previous Step
           </Button>
@@ -905,15 +1087,28 @@ export function BookingWizard({ formAction, scheduleContext = {} }) {
             type="button"
             onClick={nextStep}
             disabled={!currentStepIsValid()}
-            className="bg-rose-500 hover:bg-rose-600 text-white rounded-full px-8 h-11 text-xs sm:text-sm shadow-md shadow-rose-200 group font-bold gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95"
+            className="bg-rose-500 hover:bg-rose-600 text-white rounded-full px-8 h-11 text-xs sm:text-sm shadow-md shadow-rose-200 group font-bold gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:scale-105 active:scale-95 cursor-pointer"
           >
             <span>Proceed to Step {step + 1}</span>
             <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Button>
         ) : (
-          <SubmitButton />
+          <SubmitButton disabled={!dpaConsentChecked} />
         )}
       </div>
     </form>
+  );
+}
+
+export function BookingWizard(props) {
+  return (
+    <Suspense fallback={
+      <div className="bg-white rounded-3xl p-12 text-center border border-rose-100 shadow-xl">
+        <Loader2 className="w-8 h-8 text-rose-500 animate-spin mx-auto mb-3" />
+        <p className="text-slate-600 font-bold text-sm">Loading Appointment Wizard...</p>
+      </div>
+    }>
+      <BookingWizardInner {...props} />
+    </Suspense>
   );
 }

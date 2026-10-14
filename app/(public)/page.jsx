@@ -345,7 +345,16 @@ export default async function LandingPage() {
                       {service.description || service.desc}
                     </p>
                     <Link
-                      href="/book"
+                      href={`/book?service=${encodeURIComponent(
+                        service.id ||
+                        ((service.title || "").toLowerCase().includes("delivery")
+                          ? "delivery"
+                          : (service.title || "").toLowerCase().includes("prenatal")
+                          ? "prenatal"
+                          : (service.title || "").toLowerCase().includes("family")
+                          ? "family"
+                          : "general")
+                      )}`}
                       className="mt-5 inline-flex items-center gap-1 text-sm font-semibold text-primary transition-all hover:gap-2"
                     >
                       Book now <ChevronRight className="h-4 w-4" />

@@ -305,14 +305,28 @@ export async function createAppointment(formData) {
 
   if (!patientId) {
     if (patientName) {
-      // Create new dependent patient
-      const { data: newPatient, error: createError } = await supabase.from('patients').insert({
-        account_id: user.id,
-        full_name: patientName
-      }).select('id').single();
-      
-      if (createError) redirect(`/book?error=${encodeURIComponent(createError.message)}`);
-      patientId = newPatient.id;
+      const cleanName = patientName.trim();
+      // Search for existing dependent under the same account with matching name to avoid duplicate medical charts
+      const { data: existingDep } = await supabase
+        .from('patients')
+        .select('id, full_name')
+        .eq('account_id', user.id)
+        .ilike('full_name', cleanName)
+        .limit(1)
+        .maybeSingle();
+
+      if (existingDep) {
+        patientId = existingDep.id;
+      } else {
+        // Create new dependent patient
+        const { data: newPatient, error: createError } = await supabase.from('patients').insert({
+          account_id: user.id,
+          full_name: cleanName
+        }).select('id').single();
+        
+        if (createError) redirect(`/book?error=${encodeURIComponent(createError.message)}`);
+        patientId = newPatient.id;
+      }
     } else {
       // Fallback: see if they have an existing profile, or create a default one
       const { data: existingPatient } = await supabase.from('patients')
@@ -457,5 +471,5 @@ export async function createAppointment(formData) {
     });
   }
 
-  redirect(`/book?success=true&status=${initialStatus}`);
+  redirect(`/book?success=true&status=${initialStatus}&date=${encodeURIComponent(appointment_date)}&time=${encodeURIComponent(time)}&service=${encodeURIComponent(service_type)}`);
 }
