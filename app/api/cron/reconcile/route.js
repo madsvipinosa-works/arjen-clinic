@@ -1,80 +1,127 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { sendEmail } from '@/utils/email';
+import { sendEmail, renderClinicEmailTemplate } from '@/utils/email';
+import { verifyCronSecret } from '@/lib/cron-guard';
+import { getClinicTodayDateString } from '@/lib/utils';
+import { logAuditEvent } from '@/lib/audit-logger';
 
 export async function GET(request) {
-  // Security Check: Ensure only Vercel Cron or authorized agents can trigger this
-  const authHeader = request.headers.get('authorization');
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && process.env.NODE_ENV !== 'development') {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  // 1. Timing-safe security verification
+  const authError = verifyCronSecret(request);
+  if (authError) return authError;
 
-  // Note: We use the Supabase Service Role Key to bypass RLS for background jobs
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
   );
 
   try {
-    const today = new Date().toLocaleDateString('en-CA'); // Gets YYYY-MM-DD in local time
+    // 2. Strict Philippine Standard Time (PHT, UTC+8) for today's date
+    const today = getClinicTodayDateString();
 
-    // 1. Find appointments from TODAY that were never marked as Completed or Cancelled
+    // 3. Find appointments from TODAY that were never marked as Completed or Cancelled
     const { data: missedAppointments, error: fetchError } = await supabase
       .from('appointments')
-      .select('id, time_preference, service_type, patients(id, full_name, account_id)')
+      .select('id, time_preference, service_type, appointment_date, patients(id, full_name, account_id, is_high_risk)')
       .eq('appointment_date', today)
       .in('status', ['Approved', 'Waiting']);
 
     if (fetchError) throw fetchError;
 
     if (!missedAppointments || missedAppointments.length === 0) {
-      return NextResponse.json({ message: 'No missed appointments found for today.' });
+      return NextResponse.json({ 
+        success: true, 
+        message: 'No unserved appointments found to reconcile for today.',
+        reconciledCount: 0,
+        today 
+      });
     }
 
-    // 2. Mark them as No-Show
+    // 4. Mark them as No-Show and triage_status as missed
     const missedIds = missedAppointments.map(a => a.id);
     const { error: updateError } = await supabase
       .from('appointments')
-      .update({ status: 'No-Show' })
+      .update({ 
+        status: 'No-Show',
+        triage_status: 'missed'
+      })
       .in('id', missedIds);
 
     if (updateError) throw updateError;
 
-    // 3. Send No-Show Emails
+    // 5. Send empathetic care recovery emails
     let emailsSent = 0;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://arjenclinic.com';
+
     for (const appt of missedAppointments) {
-      // We need the user's email from auth.users, but we don't have direct access in the standard query.
-      // Fetch user email using account_id
-      const { data: userData } = await supabase.auth.admin.getUserById(appt.patients.account_id);
-      
-      if (userData?.user?.email) {
-        await sendEmail({
-          to: userData.user.email,
-          subject: 'Missed Appointment - AR-JEN Clinic',
-          html: `
-            <div style="font-family: sans-serif; padding: 20px;">
-              <h2 style="color: #ba1a1a;">Missed Appointment Notice</h2>
-              <p>Hi ${appt.patients.full_name},</p>
-              <p>We noticed you weren't able to make it to your <strong>${appt.service_type}</strong> appointment today during the ${appt.time_preference} shift.</p>
-              <p>Your maternal and prenatal health is very important to us. Please log into the AR-JEN Clinic portal to reschedule your checkup as soon as possible.</p>
-              <br/>
-              <p>Stay safe,</p>
-              <p><strong>AR-JEN Maternity Clinic</strong></p>
-            </div>
-          `
-        });
-        emailsSent++;
+      // Null-safety check
+      if (!appt.patients?.account_id) continue;
+
+      try {
+        const { data: userData } = await supabase.auth.admin.getUserById(appt.patients.account_id);
+        const recipientEmail = userData?.user?.email;
+
+        if (recipientEmail) {
+          const emailHtml = renderClinicEmailTemplate({
+            title: "AR-JEN Maternity Clinic",
+            subtitle: "Dasmariñas City, Cavite · PhilHealth Accredited Lying-In",
+            badgeText: "Missed Appointment · Care Recovery",
+            badgeVariant: "rose",
+            headline: "We Missed You at AR-JEN Maternity Clinic Today",
+            message: `Hi <strong>${appt.patients.full_name}</strong>,<br/><br/>We noticed you were unable to make it to your scheduled <strong>${appt.service_type}</strong> checkup today during the <strong>${appt.time_preference || 'scheduled'}</strong> shift.<br/><br/>Your maternal health and continuous prenatal/postpartum monitoring are our highest priorities. Regular clinical visits allow our midwives to ensure both mother and baby remain healthy. We encourage you to reschedule your visit as soon as possible.`,
+            detailsRows: [
+              { label: 'Patient Name', value: appt.patients.full_name },
+              { label: 'Missed Service', value: appt.service_type },
+              { label: 'Scheduled Date', value: today },
+              { label: 'Scheduled Shift', value: `${appt.time_preference || 'Morning'} Shift` },
+            ],
+            urgentNotice: appt.patients.is_high_risk
+              ? "Your chart has a High-Risk Maternal flag. Missing checkups poses safety risks for both mother and child. Please reschedule immediately or contact the clinic."
+              : null,
+            ctaText: "Reschedule My Appointment",
+            ctaUrl: `${siteUrl}/book?service=${encodeURIComponent(appt.service_type || 'Prenatal Checkup')}`,
+            footerNote: "EMERGENCY NOTICE: If you are experiencing fever, severe abdominal pain, vaginal bleeding, headache with blurred vision, or reduced baby movements, do not wait — proceed immediately to the clinic or nearest hospital emergency room."
+          });
+
+          const result = await sendEmail({
+            to: recipientEmail,
+            subject: `We Missed You: Reschedule Your Checkup — AR-JEN Clinic`,
+            html: emailHtml,
+          });
+
+          if (result.success) {
+            emailsSent++;
+          }
+        }
+      } catch (recipientErr) {
+        console.error(`[Cron:Reconcile] Failed to dispatch no-show email for appointment ${appt.id}:`, recipientErr);
       }
     }
 
+    // 6. Record statutory DPA 2012 audit log entry
+    await logAuditEvent({
+      action: 'CRON_RECONCILE_NO_SHOWS',
+      entityType: 'appointments',
+      details: {
+        reconciled_date: today,
+        reconciled_count: missedAppointments.length,
+        emails_sent: emailsSent,
+        appointment_ids: missedIds,
+        timestamp: new Date().toISOString(),
+      },
+      userOverride: { id: null, email: 'system:cron:reconcile', role: 'system' },
+      supabaseOverride: supabase,
+    });
+
     return NextResponse.json({ 
       success: true, 
+      today,
       reconciledCount: missedAppointments.length,
       emailsSent 
     });
 
   } catch (error) {
-    console.error('[Cron] Reconcile Error:', error);
+    console.error('[Cron:Reconcile] Execution Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
