@@ -48,6 +48,15 @@ export function CMSManager({ initialSettings }) {
   const [savedKey, setSavedKey] = useState(null); // identifier of recently saved form
   const [isPending, startTransition] = useTransition();
 
+  // SEO Simulator States
+  const [seoTitle, setSeoTitle] = useState(initialSettings?.seo_meta_title || "");
+  const [seoDescription, setSeoDescription] = useState(initialSettings?.seo_meta_description || "");
+
+  // Operating Hours Preset States
+  const [hoursWeekdays, setHoursWeekdays] = useState(initialSettings?.operating_hours_weekdays || "");
+  const [hoursSaturday, setHoursSaturday] = useState(initialSettings?.operating_hours_saturday || "");
+  const [hoursSunday, setHoursSunday] = useState(initialSettings?.operating_hours_sunday || "");
+
   const showToast = (type, title, message) => {
     setNotification({ type, title, message });
     setTimeout(() => {
@@ -89,6 +98,9 @@ export function CMSManager({ initialSettings }) {
       } else {
         if (result?.publicUrl) {
           setSettings((prev) => ({ ...prev, navbar_logo: result.publicUrl }));
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("clinic-logo-updated", { detail: { logoUrl: result.publicUrl } }));
+          }
         }
         setSavedKey("navbar_logo_studio");
         showToast("success", "Logo Updated & Published!", "Navbar brand logo framed and published successfully.");
@@ -112,6 +124,9 @@ export function CMSManager({ initialSettings }) {
         showToast("error", "Failed to Remove Logo", result?.error || "An error occurred.");
       } else {
         setSettings((prev) => ({ ...prev, navbar_logo: null }));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("clinic-logo-updated", { detail: { logoUrl: null } }));
+        }
         showToast("success", "Logo Removed", "Custom logo removed. Default clinic icon restored.");
       }
     } catch (err) {
@@ -131,6 +146,13 @@ export function CMSManager({ initialSettings }) {
       } else {
         if (result?.publicUrl) {
           setSettings((prev) => ({ ...prev, favicon_url: result.publicUrl }));
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("clinic-favicon-updated", { detail: { faviconUrl: result.publicUrl } }));
+            const link = document.querySelector("link[rel*='icon']");
+            if (link) {
+              link.setAttribute("href", result.publicUrl);
+            }
+          }
         }
         setSavedKey("favicon_studio");
         showToast("success", "Favicon Published!", "Website browser icon updated successfully across all tabs.");
@@ -154,6 +176,13 @@ export function CMSManager({ initialSettings }) {
         showToast("error", "Failed to Remove Favicon", result?.error || "An error occurred.");
       } else {
         setSettings((prev) => ({ ...prev, favicon_url: null }));
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("clinic-favicon-updated", { detail: { faviconUrl: null } }));
+          const link = document.querySelector("link[rel*='icon']");
+          if (link) {
+            link.setAttribute("href", "/favicon.ico");
+          }
+        }
         showToast("success", "Favicon Removed", "Website favicon reverted to default.");
       }
     } catch (err) {
@@ -175,6 +204,13 @@ export function CMSManager({ initialSettings }) {
       } else {
         if (result?.publicUrl) {
           setSettings((prev) => ({ ...prev, favicon_url: result.publicUrl }));
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("clinic-favicon-updated", { detail: { faviconUrl: result.publicUrl } }));
+            const link = document.querySelector("link[rel*='icon']");
+            if (link) {
+              link.setAttribute("href", result.publicUrl);
+            }
+          }
         }
         setSavedKey("favicon_studio");
         showToast("success", "Favicon Synced!", "Navbar brand logo is now set as the website favicon.");
@@ -683,69 +719,174 @@ export function CMSManager({ initialSettings }) {
             savedSuccess={savedKey === "favicon_studio"}
           />
 
-          {/* SEO Metadata Card */}
-          <Card className="border-rose-100 shadow-sm">
-            <CardHeader className="bg-rose-50/30 border-b border-rose-50 pb-4">
-              <CardTitle className="text-rose-900 flex items-center">
-                <Globe className="w-5 h-5 mr-2 text-rose-500" />
-                SEO Metadata
-              </CardTitle>
-              <CardDescription>Control how your clinic appears on Google search results and shared social cards.</CardDescription>
+          {/* SEO Metadata & Google SERP Simulator Card */}
+          <Card className="border-rose-100 shadow-sm overflow-hidden">
+            <CardHeader className="bg-gradient-to-r from-rose-50/70 via-white to-rose-50/30 border-b border-rose-100 pb-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <CardTitle className="text-rose-900 flex items-center font-bold text-lg">
+                    <Globe className="w-5 h-5 mr-2 text-rose-500" />
+                    SEO Metadata &amp; Search Simulator
+                  </CardTitle>
+                  <CardDescription className="text-gray-500">
+                    Control how your clinic appears on Google search results and shared social cards.
+                  </CardDescription>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 border border-emerald-200 self-start sm:self-auto">
+                  Live SERP Preview
+                </span>
+              </div>
             </CardHeader>
-            <CardContent className="pt-6">
-              <form
-                onSubmit={(e) =>
-                  handleAction(e, updateSEOMetadata, "seo_metadata", "SEO meta title & description updated!")
-                }
-                className="space-y-4 max-w-2xl"
-              >
-                <div className="space-y-2">
-                  <Label htmlFor="seo_meta_title" className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                    Meta Title
-                  </Label>
-                  <Input
-                    id="seo_meta_title"
-                    name="seo_meta_title"
-                    defaultValue={settings?.seo_meta_title || ""}
-                    placeholder="e.g. AR-JEN Maternity and Lying-In Clinic"
-                    className="rounded-xl"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="seo_meta_description" className="text-xs font-bold text-gray-700 uppercase tracking-wider">
-                    Meta Description
-                  </Label>
-                  <textarea
-                    id="seo_meta_description"
-                    name="seo_meta_description"
-                    defaultValue={settings?.seo_meta_description || ""}
-                    rows={3}
-                    placeholder="Brief description of your clinic for search engines..."
-                    className="flex w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm ring-offset-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  disabled={savingKey === "seo_metadata"}
-                  className={`font-bold rounded-xl h-11 px-6 transition-all ${
-                    savedKey === "seo_metadata"
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : "bg-rose-600 hover:bg-rose-700 text-white"
-                  }`}
+            <CardContent className="p-6">
+              <div className="grid lg:grid-cols-12 gap-8 items-start">
+                {/* Left: Input Form */}
+                <form
+                  onSubmit={(e) =>
+                    handleAction(e, updateSEOMetadata, "seo_metadata", "SEO meta title & description updated!")
+                  }
+                  className="lg:col-span-6 space-y-5"
                 >
-                  {savingKey === "seo_metadata" ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving SEO Settings...
-                    </>
-                  ) : savedKey === "seo_metadata" ? (
-                    <>
-                      <Check className="w-4 h-4 mr-2" /> SEO Settings Saved!
-                    </>
-                  ) : (
-                    "Save SEO Settings"
-                  )}
-                </Button>
-              </form>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="seo_meta_title" className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Meta Title (Search Heading)
+                      </Label>
+                      <span className={`text-[10px] font-mono font-bold ${seoTitle.length > 60 ? "text-amber-600" : "text-gray-400"}`}>
+                        {seoTitle.length}/60 chars
+                      </span>
+                    </div>
+                    <Input
+                      id="seo_meta_title"
+                      name="seo_meta_title"
+                      value={seoTitle}
+                      onChange={(e) => setSeoTitle(e.target.value)}
+                      placeholder="e.g. AR-JEN Maternity and Lying-In Clinic | 24/7 Delivery & Care"
+                      className="rounded-xl h-11 border-gray-200 focus:border-rose-500 font-medium"
+                    />
+                    {seoTitle.length > 60 && (
+                      <p className="text-[11px] text-amber-600 flex items-center gap-1 font-medium animate-in fade-in">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        Titles over 60 characters are typically truncated by Google search results.
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <Label htmlFor="seo_meta_description" className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Meta Description (Search Snippet)
+                      </Label>
+                      <span className={`text-[10px] font-mono font-bold ${seoDescription.length > 160 ? "text-amber-600" : "text-gray-400"}`}>
+                        {seoDescription.length}/160 chars
+                      </span>
+                    </div>
+                    <textarea
+                      id="seo_meta_description"
+                      name="seo_meta_description"
+                      value={seoDescription}
+                      onChange={(e) => setSeoDescription(e.target.value)}
+                      rows={4}
+                      placeholder="Compassionate maternity care, routine prenatal evaluations, 24/7 labor & delivery services in a clean, PhilHealth-accredited facility..."
+                      className="flex w-full rounded-xl border border-gray-200 bg-white px-3.5 py-2.5 text-sm ring-offset-white placeholder:text-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500 text-gray-800 leading-relaxed"
+                    />
+                    {seoDescription.length > 160 && (
+                      <p className="text-[11px] text-amber-600 flex items-center gap-1 font-medium animate-in fade-in">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        Snippets over 160 characters will be clipped with an ellipsis on search engines.
+                      </p>
+                    )}
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={savingKey === "seo_metadata"}
+                    className={`font-bold rounded-xl h-11 px-6 transition-all w-full cursor-pointer shadow-sm ${
+                      savedKey === "seo_metadata"
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        : "bg-rose-600 hover:bg-rose-700 text-white"
+                    }`}
+                  >
+                    {savingKey === "seo_metadata" ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving SEO Settings...
+                      </>
+                    ) : savedKey === "seo_metadata" ? (
+                      <>
+                        <Check className="w-4 h-4 mr-2" /> SEO Settings Saved!
+                      </>
+                    ) : (
+                      "Save SEO Settings"
+                    )}
+                  </Button>
+                </form>
+
+                {/* Right: Live Interactive SERP & Social Simulator */}
+                <div className="lg:col-span-6 space-y-4">
+                  {/* Google Desktop SERP Simulator */}
+                  <div className="p-4 sm:p-5 rounded-2xl bg-white border border-gray-200/90 shadow-md shadow-gray-200/40 space-y-3">
+                    <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                        <Globe className="w-3.5 h-3.5 text-blue-600" />
+                        Google Search Snippet Preview
+                      </span>
+                      <span className="text-[10px] text-gray-400 font-medium">Desktop &amp; Mobile</span>
+                    </div>
+
+                    {/* SERP Item */}
+                    <div className="space-y-1 pt-1">
+                      {/* Site origin and favicon */}
+                      <div className="flex items-center gap-2 text-xs">
+                        {settings?.favicon_url ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={settings.favicon_url} alt="Favicon" className="w-4 h-4 rounded-full object-contain shrink-0" />
+                        ) : (
+                          <div className="w-4 h-4 rounded-full bg-rose-500 flex items-center justify-center text-[8px] text-white font-bold shrink-0">
+                            A
+                          </div>
+                        )}
+                        <div className="flex flex-col min-w-0">
+                          <span className="text-xs font-semibold text-[#202124] truncate">AR-JEN Maternity Clinic</span>
+                          <span className="text-[11px] text-[#4d5156] font-mono leading-none truncate">https://arjenclinic.com › lying-in</span>
+                        </div>
+                      </div>
+
+                      {/* Blue Title Link */}
+                      <h3 className="text-base sm:text-lg text-[#1a0dab] hover:underline cursor-pointer font-normal line-clamp-1 pt-1">
+                        {seoTitle || "AR-JEN Maternity and Lying-In Clinic"}
+                      </h3>
+
+                      {/* Gray snippet */}
+                      <p className="text-xs sm:text-sm text-[#4d5156] leading-relaxed line-clamp-2">
+                        {seoDescription || "Safe, quality maternal healthcare, prenatal check-ups, and 24/7 delivery services in the Philippines."}
+                      </p>
+                    </div>
+
+                    {/* Quick Action Chips */}
+                    <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100 text-[11px] text-blue-700">
+                      <span className="px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 font-medium">📞 Call Front Desk</span>
+                      <span className="px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 font-medium">📅 Book Consultation</span>
+                      <span className="px-2.5 py-1 rounded-full bg-blue-50 border border-blue-100 font-medium">📍 View Directions</span>
+                    </div>
+                  </div>
+
+                  {/* Social Card Preview */}
+                  <div className="p-4 rounded-2xl bg-gray-50/80 border border-gray-200/80 space-y-2">
+                    <div className="flex items-center justify-between pb-1.5 border-b border-gray-200/60">
+                      <span className="text-[10px] font-black uppercase tracking-wider text-gray-500">
+                        Social Link Preview (Facebook / Messenger)
+                      </span>
+                      <span className="text-[10px] font-mono text-gray-400">OpenGraph Snippet</span>
+                    </div>
+                    <div className="bg-white p-3 rounded-xl border border-gray-200 shadow-2xs space-y-1">
+                      <span className="text-[10px] uppercase font-bold text-gray-400 tracking-wider">ARJENCLINIC.COM</span>
+                      <h4 className="text-xs font-bold text-gray-900 line-clamp-1">{seoTitle || "AR-JEN Maternity Clinic"}</h4>
+                      <p className="text-[11px] text-gray-500 line-clamp-2 leading-relaxed">
+                        {seoDescription || "Safe, quality maternal healthcare, prenatal check-ups, and 24/7 delivery services in the Philippines."}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -886,33 +1027,123 @@ export function CMSManager({ initialSettings }) {
 
                   {/* Operating Hours */}
                   <div className="space-y-4">
-                    <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider border-b pb-2">
-                      Operating Hours
-                    </h3>
-                    <div className="space-y-2">
-                      <Label htmlFor="operating_hours_weekdays">Weekdays</Label>
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Operating Hours
+                      </h3>
+                      <span className="text-[10px] text-rose-600 font-semibold">1-Click Presets</span>
+                    </div>
+
+                    {/* Weekdays */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="operating_hours_weekdays" className="text-xs font-semibold text-gray-700">Weekdays</Label>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setHoursWeekdays("Mon - Fri: 8:00 AM - 5:00 PM")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            8AM-5PM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoursWeekdays("Mon - Fri: 7:00 AM - 6:00 PM")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            7AM-6PM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoursWeekdays("24/7 Everyday (Labor & Delivery)")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            24/7
+                          </button>
+                        </div>
+                      </div>
                       <Input
                         id="operating_hours_weekdays"
                         name="operating_hours_weekdays"
-                        defaultValue={settings?.operating_hours_weekdays || ""}
+                        value={hoursWeekdays}
+                        onChange={(e) => setHoursWeekdays(e.target.value)}
+                        placeholder="e.g. Mon - Fri: 8:00 AM - 5:00 PM"
                         className="rounded-xl"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="operating_hours_saturday">Saturday</Label>
+
+                    {/* Saturday */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="operating_hours_saturday" className="text-xs font-semibold text-gray-700">Saturday</Label>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setHoursSaturday("Saturday: 8:00 AM - 12:00 PM (Half Day)")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            Half Day
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoursSaturday("Saturday: 8:00 AM - 5:00 PM")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            8AM-5PM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoursSaturday("Saturday: Closed (Emergency Delivery Only)")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            Closed
+                          </button>
+                        </div>
+                      </div>
                       <Input
                         id="operating_hours_saturday"
                         name="operating_hours_saturday"
-                        defaultValue={settings?.operating_hours_saturday || ""}
+                        value={hoursSaturday}
+                        onChange={(e) => setHoursSaturday(e.target.value)}
+                        placeholder="e.g. Saturday: 8:00 AM - 12:00 PM (Half Day)"
                         className="rounded-xl"
                       />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="operating_hours_sunday">Sunday</Label>
+
+                    {/* Sunday */}
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="operating_hours_sunday" className="text-xs font-semibold text-gray-700">Sunday</Label>
+                        <div className="flex flex-wrap gap-1">
+                          <button
+                            type="button"
+                            onClick={() => setHoursSunday("Sunday: 24/7 Delivery Only")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            24/7 Delivery
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoursSunday("Sunday: 8:00 AM - 12:00 PM")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            8AM-12PM
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setHoursSunday("Sunday: Closed (Midwife On-Call)")}
+                            className="text-[10px] px-2 py-0.5 rounded-md bg-rose-50 text-rose-700 hover:bg-rose-100 font-semibold cursor-pointer transition-colors"
+                          >
+                            Closed
+                          </button>
+                        </div>
+                      </div>
                       <Input
                         id="operating_hours_sunday"
                         name="operating_hours_sunday"
-                        defaultValue={settings?.operating_hours_sunday || ""}
+                        value={hoursSunday}
+                        onChange={(e) => setHoursSunday(e.target.value)}
+                        placeholder="e.g. Sunday: 24/7 Delivery Only"
                         className="rounded-xl"
                       />
                     </div>

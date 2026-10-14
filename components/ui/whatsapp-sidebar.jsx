@@ -77,7 +77,7 @@ export function AppSidebar() {
   const fileInputRef = React.useRef(null)
   const pathname = usePathname()
 
-  // Load clinic logo from settings on mount
+  // Load clinic logo from settings on mount & listen to real-time branding updates
   React.useEffect(() => {
     const supabase = createClient()
     supabase
@@ -90,11 +90,31 @@ export function AppSidebar() {
           setLogoUrl(data.navbar_logo)
         }
       })
+
+    const handleLogoUpdate = (e) => {
+      setLogoUrl(e.detail?.logoUrl ?? null)
+    }
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("clinic-logo-updated", handleLogoUpdate)
+    }
+
+    return () => {
+      if (typeof window !== "undefined") {
+        window.removeEventListener("clinic-logo-updated", handleLogoUpdate)
+      }
+    }
   }, [])
 
   const handleLogoUpload = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
+
+    // Guard: Max 3MB
+    if (file.size > 3 * 1024 * 1024) {
+      alert("Logo file is too large (max 3 MB).")
+      return
+    }
 
     // Optimistic instant preview
     const previewUrl = URL.createObjectURL(file)
@@ -108,6 +128,9 @@ export function AppSidebar() {
       const res = await updateNavbarLogo(formData)
       if (res?.publicUrl) {
         setLogoUrl(res.publicUrl)
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("clinic-logo-updated", { detail: { logoUrl: res.publicUrl } }))
+        }
       }
     } catch (err) {
       console.error("Failed to upload logo:", err)
@@ -124,6 +147,9 @@ export function AppSidebar() {
       formData.append("action", "remove")
       await updateNavbarLogo(formData)
       setLogoUrl(null)
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("clinic-logo-updated", { detail: { logoUrl: null } }))
+      }
     } catch (err) {
       console.error("Failed to remove logo:", err)
     } finally {

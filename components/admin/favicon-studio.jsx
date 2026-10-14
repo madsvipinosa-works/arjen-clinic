@@ -32,6 +32,7 @@ import {
   Share2,
   X,
   Plus,
+  AlertCircle,
 } from "lucide-react";
 
 export function FaviconStudio({
@@ -46,6 +47,7 @@ export function FaviconStudio({
   // Source Image
   const [imageSrc, setImageSrc] = useState(currentFaviconUrl || navbarLogoUrl || null);
   const [isNewUpload, setIsNewUpload] = useState(false);
+  const [fileError, setFileError] = useState(null);
 
   // Transform States
   const [zoom, setZoom] = useState(1.0);
@@ -166,6 +168,19 @@ export function FaviconStudio({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Guard: Max 2MB
+    if (file.size > 2 * 1024 * 1024) {
+      setFileError(`Favicon image too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed size is 2 MB.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (file.type && !file.type.startsWith("image/")) {
+      setFileError("Invalid file type. Please select an icon file (ICO, PNG, SVG, WebP).");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setFileError(null);
     setIsNewUpload(true);
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -219,6 +234,7 @@ export function FaviconStudio({
 
   // Reset all transforms
   const handleReset = () => {
+    setFileError(null);
     setZoom(1.0);
     setPanX(0);
     setPanY(0);
@@ -395,6 +411,23 @@ export function FaviconStudio({
             <span>Recommended: square emblem / monogram with high contrast</span>
           </div>
         </div>
+
+        {/* ── Client-side Error Alert ── */}
+        {fileError && (
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{fileError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFileError(null)}
+              className="text-rose-500 hover:text-rose-800 text-xs font-bold underline cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* ── Main Studio Grid ── */}
         <div className="grid lg:grid-cols-12 gap-8 items-start">

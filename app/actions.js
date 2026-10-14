@@ -1474,15 +1474,29 @@ export async function updateServices(servicesJson) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  await supabaseServer.from('clinic_settings').upsert({
+  const { error } = await supabaseServer.from('clinic_settings').upsert({
     id: 1,
     services: servicesJson
   }, { onConflict: 'id' });
+
+  if (error) {
+    console.error('[updateServices] error:', error.message);
+    return { success: false, error: error.message };
+  }
+
+  // DPA Audit Trail
+  await logAuditEvent({
+    action: 'UPDATE_CLINIC_SERVICES',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { serviceCount: Array.isArray(servicesJson) ? servicesJson.length : 0 }
+  });
 
   revalidatePath('/admin/settings', 'page');
   revalidatePath('/admin/cms', 'page');
   revalidatePath('/book', 'page');
   revalidatePath('/', 'page');
+  return { success: true };
 }
 
 
@@ -2172,6 +2186,14 @@ export async function updateHeroImage(formData) {
       console.error('[updateHeroImage] Remove error:', error.message);
       return { success: false, error: error.message };
     }
+
+    await logAuditEvent({
+      action: 'REMOVE_HERO_IMAGE',
+      entityType: 'clinic_settings',
+      entityId: '1',
+      details: { position, targetColumn }
+    });
+
     revalidatePath('/');
     revalidatePath('/admin/settings');
     revalidatePath('/admin/cms');
@@ -2192,6 +2214,13 @@ export async function updateHeroImage(formData) {
       return { success: false, error: dbError.message };
     }
 
+    await logAuditEvent({
+      action: 'UPDATE_HERO_IMAGE',
+      entityType: 'clinic_settings',
+      entityId: '1',
+      details: { position, targetColumn, cleanUrl }
+    });
+
     revalidatePath('/');
     revalidatePath('/admin/settings');
     revalidatePath('/admin/cms');
@@ -2205,16 +2234,16 @@ export async function updateHeroImage(formData) {
     return { success: false, error: 'No file selected.' };
   }
 
-  // Validate size (max 10 MB for hero photo)
-  if (file.size > 10 * 1024 * 1024) {
-    return { success: false, error: 'File too large. Maximum size is 10 MB.' };
+  // Validate size (max 8 MB for hero photo)
+  if (file.size > 8 * 1024 * 1024) {
+    return { success: false, error: 'Hero photo too large. Maximum size is 8 MB.' };
   }
 
   const rawExt = file.name ? file.name.split('.').pop() : '';
   const fileExt = (rawExt || 'jpg').toLowerCase();
   const ALLOWED = ['jpg', 'jpeg', 'png', 'webp', 'svg', 'gif'];
   if (!ALLOWED.includes(fileExt)) {
-    return { success: false, error: `Only JPG, PNG, and WebP files are supported.` };
+    return { success: false, error: 'Only JPG, PNG, and WebP files are supported.' };
   }
 
   const timestamp = Date.now();
@@ -2262,10 +2291,17 @@ export async function updateHeroImage(formData) {
     return { success: false, error: dbError.message };
   }
 
+  await logAuditEvent({
+    action: 'UPDATE_HERO_IMAGE',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { position, targetColumn, publicUrl, size: file.size, type: file.type }
+  });
+
   revalidatePath('/');
   revalidatePath('/admin/settings');
   revalidatePath('/admin/cms');
-  return { success: true };
+  return { success: true, publicUrl };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2292,6 +2328,13 @@ export async function updateHeroContent(formData) {
 
   if (error) return { success: false, error: error.message };
 
+  await logAuditEvent({
+    action: 'UPDATE_HERO_CONTENT',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { hero_eyebrow, hero_title, hero_subtitle }
+  });
+
   revalidatePath('/');
   revalidatePath('/', 'layout');
   revalidatePath('/admin/cms');
@@ -2310,6 +2353,14 @@ export async function updateNavbarLogo(formData) {
   if (action === 'remove') {
     const { error } = await supabaseServer.from('clinic_settings').update({ navbar_logo: null }).eq('id', 1);
     if (error) return { success: false, error: error.message };
+
+    await logAuditEvent({
+      action: 'REMOVE_NAVBAR_LOGO',
+      entityType: 'clinic_settings',
+      entityId: '1',
+      details: {}
+    });
+
     revalidatePath('/', 'layout');
     revalidatePath('/admin/cms');
     return { success: true };
@@ -2318,14 +2369,25 @@ export async function updateNavbarLogo(formData) {
   const file = formData.get('navbar_logo');
   if (!file || file.size === 0) return { success: false, error: 'No file selected.' };
 
-  const fileExt = file.name.split('.').pop().toLowerCase();
+  // Guard: Max 3 MB
+  if (file.size > 3 * 1024 * 1024) {
+    return { success: false, error: 'Logo file too large. Maximum size is 3 MB.' };
+  }
+
+  const allowedMimes = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+  if (file.type && !allowedMimes.includes(file.type)) {
+    return { success: false, error: 'Invalid file format. Please upload a PNG, JPG, WebP, or SVG logo.' };
+  }
+
+  const rawExt = file.name ? file.name.split('.').pop() : '';
+  const fileExt = (rawExt || 'png').toLowerCase();
   const filePath = `logo/${Date.now()}.${fileExt}`;
 
-  const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true });
+  const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
 
   let publicUrl = '';
   if (uploadError) {
-    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true });
+    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
     if (fallbackError) return { success: false, error: fallbackError.message };
     publicUrl = supabaseServer.storage.from('patient-records').getPublicUrl(filePath).data.publicUrl;
   } else {
@@ -2334,6 +2396,13 @@ export async function updateNavbarLogo(formData) {
 
   const { error: dbError } = await supabaseServer.from('clinic_settings').update({ navbar_logo: publicUrl }).eq('id', 1);
   if (dbError) return { success: false, error: dbError.message };
+
+  await logAuditEvent({
+    action: 'UPDATE_NAVBAR_LOGO',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { publicUrl, size: file.size, type: file.type }
+  });
 
   revalidatePath('/', 'layout');
   revalidatePath('/admin/cms');
@@ -2352,6 +2421,14 @@ export async function updateFavicon(formData) {
   if (action === 'remove') {
     const { error } = await supabaseServer.from('clinic_settings').update({ favicon_url: null }).eq('id', 1);
     if (error) return { success: false, error: error.message };
+
+    await logAuditEvent({
+      action: 'REMOVE_FAVICON',
+      entityType: 'clinic_settings',
+      entityId: '1',
+      details: {}
+    });
+
     revalidatePath('/', 'layout');
     revalidatePath('/admin/cms');
     return { success: true };
@@ -2364,6 +2441,14 @@ export async function updateFavicon(formData) {
     }
     const { error } = await supabaseServer.from('clinic_settings').update({ favicon_url: settings.navbar_logo }).eq('id', 1);
     if (error) return { success: false, error: error.message };
+
+    await logAuditEvent({
+      action: 'SYNC_FAVICON_WITH_LOGO',
+      entityType: 'clinic_settings',
+      entityId: '1',
+      details: { syncedUrl: settings.navbar_logo }
+    });
+
     revalidatePath('/', 'layout');
     revalidatePath('/admin/cms');
     return { success: true, publicUrl: settings.navbar_logo };
@@ -2372,14 +2457,24 @@ export async function updateFavicon(formData) {
   const file = formData.get('favicon_file');
   if (!file || file.size === 0) return { success: false, error: 'No file selected.' };
 
+  // Guard: Max 2 MB
+  if (file.size > 2 * 1024 * 1024) {
+    return { success: false, error: 'Favicon file too large. Maximum size is 2 MB.' };
+  }
+
+  const allowedMimes = ['image/png', 'image/x-icon', 'image/vnd.microsoft.icon', 'image/svg+xml', 'image/webp', 'image/jpeg'];
+  if (file.type && !allowedMimes.includes(file.type)) {
+    return { success: false, error: 'Invalid favicon format. Please upload an ICO, PNG, or SVG icon.' };
+  }
+
   const fileExt = file.name?.split('.').pop().toLowerCase() || 'png';
   const filePath = `favicon/${Date.now()}.${fileExt}`;
 
-  const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true });
+  const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
 
   let publicUrl = '';
   if (uploadError) {
-    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true });
+    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
     if (fallbackError) return { success: false, error: fallbackError.message };
     publicUrl = supabaseServer.storage.from('patient-records').getPublicUrl(filePath).data.publicUrl;
   } else {
@@ -2388,6 +2483,13 @@ export async function updateFavicon(formData) {
 
   const { error: dbError } = await supabaseServer.from('clinic_settings').update({ favicon_url: publicUrl }).eq('id', 1);
   if (dbError) return { success: false, error: dbError.message };
+
+  await logAuditEvent({
+    action: 'UPDATE_FAVICON',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { publicUrl, size: file.size, type: file.type }
+  });
 
   revalidatePath('/', 'layout');
   revalidatePath('/admin/cms');
@@ -2420,6 +2522,13 @@ export async function updateAboutContent(formData) {
   }, { onConflict: 'id' });
 
   if (error) return { success: false, error: error.message };
+
+  await logAuditEvent({
+    action: 'UPDATE_ABOUT_CONTENT',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { about_title, trustPointCount: trust_points.length }
+  });
 
   revalidatePath('/');
   revalidatePath('/', 'layout');
@@ -2460,6 +2569,13 @@ export async function updateFooterContent(formData) {
 
   if (error) return { success: false, error: error.message };
 
+  await logAuditEvent({
+    action: 'UPDATE_FOOTER_CONTENT',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { clinic_contact, footer_email }
+  });
+
   revalidatePath('/');
   revalidatePath('/', 'layout');
   revalidatePath('/admin/cms');
@@ -2483,6 +2599,13 @@ export async function updateSEOMetadata(formData) {
   }, { onConflict: 'id' });
 
   if (error) return { success: false, error: error.message };
+
+  await logAuditEvent({
+    action: 'UPDATE_SEO_METADATA',
+    entityType: 'clinic_settings',
+    entityId: '1',
+    details: { seo_meta_title, descriptionLength: seo_meta_description?.length || 0 }
+  });
 
   revalidatePath('/');
   revalidatePath('/', 'layout');

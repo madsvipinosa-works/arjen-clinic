@@ -29,6 +29,7 @@ import {
   RefreshCw,
   Heart,
   PhoneCall,
+  AlertCircle,
 } from "lucide-react";
 
 export function LogoStudio({
@@ -44,6 +45,7 @@ export function LogoStudio({
   const [isNewUpload, setIsNewUpload] = useState(false);
 
   // Transform States
+  const [fileError, setFileError] = useState(null);
   const [zoom, setZoom] = useState(1.0);
   const [panX, setPanX] = useState(0);
   const [panY, setPanY] = useState(0);
@@ -177,6 +179,19 @@ export function LogoStudio({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Guard: Max 3MB
+    if (file.size > 3 * 1024 * 1024) {
+      setFileError(`Logo image too large (${(file.size / (1024 * 1024)).toFixed(1)} MB). Maximum allowed size is 3 MB.`);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+    if (file.type && !file.type.startsWith("image/")) {
+      setFileError("Invalid file type. Please select an image file (PNG, JPG, WebP, SVG).");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
+
+    setFileError(null);
     setOriginalFileName(file.name);
     setIsNewUpload(true);
 
@@ -233,6 +248,7 @@ export function LogoStudio({
 
   // Reset all transforms
   const handleReset = () => {
+    setFileError(null);
     setZoom(1.0);
     setPanX(0);
     setPanY(0);
@@ -385,6 +401,23 @@ export function LogoStudio({
             <span>Supports transparent PNGs, SVG, WebP, JPG photos</span>
           </div>
         </div>
+
+        {/* ── Client-side Error Alert ── */}
+        {fileError && (
+          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold flex items-center justify-between gap-3 animate-in fade-in duration-200">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>{fileError}</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => setFileError(null)}
+              className="text-rose-500 hover:text-rose-800 text-xs font-bold underline cursor-pointer"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* ── Main Studio Grid (Editor on Left, Live Previews on Right) ── */}
         <div className="grid lg:grid-cols-12 gap-8 items-start">
