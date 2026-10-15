@@ -2,18 +2,16 @@ import React from "react";
 import { createClient } from "@/utils/supabase/server";
 import { redirect } from "next/navigation";
 import { CMSManager } from "@/components/admin/cms-manager";
+import { requireStaffSession } from "@/lib/rbac-server";
+import { canManageSystemSettings } from "@/lib/rbac";
 
 export const metadata = {
   title: "Website CMS - AR-JEN Admin",
 };
 
 export default async function CMSPage() {
+  await requireStaffSession(canManageSystemSettings);
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/admin/login");
-  }
 
   // Fetch clinic settings
   const { data: settings } = await supabase

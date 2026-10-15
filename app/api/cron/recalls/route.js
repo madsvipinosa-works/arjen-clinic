@@ -35,12 +35,24 @@ export async function GET(request) {
     const allTargetDates = [...nbsDates, ...immunizationDates];
 
     // 3. Query postpartum records with delivery dates in these windows
-    const { data: records, error: fetchError } = await supabase
+    let records = [];
+    const { data: recordsWithTracking, error: trackingError } = await supabase
       .from('postpartum_records')
-      .select('id, delivery_date, nbs_filter_card_number, nbs_status, patients(id, full_name, account_id, is_high_risk)')
+      .select('id, delivery_date, nbs_filter_card_number, nbs_status, nbs_recall_sent_at, immunization_recall_sent_at, patients(id, full_name, account_id, is_high_risk)')
       .in('delivery_date', allTargetDates);
 
-    if (fetchError) throw fetchError;
+    if (!trackingError) {
+      records = recordsWithTracking || [];
+    } else {
+      console.warn('[Cron:Recalls] nbs_recall_sent_at column unmigrated, using fallback query:', trackingError.message);
+      const { data: fallbackRecords, error: fallbackError } = await supabase
+        .from('postpartum_records')
+        .select('id, delivery_date, nbs_filter_card_number, nbs_status, patients(id, full_name, account_id, is_high_risk)')
+        .in('delivery_date', allTargetDates);
+
+      if (fallbackError) throw fallbackError;
+      records = fallbackRecords || [];
+    }
 
     if (!records || records.length === 0) {
       return NextResponse.json({ 
@@ -65,6 +77,10 @@ export async function GET(request) {
 
       const isNbsRecall = nbsDates.includes(record.delivery_date);
       const isImmunizationRecall = immunizationDates.includes(record.delivery_date);
+
+      // Skip if recall already sent previously (Finding 8)
+      if (isNbsRecall && record.nbs_recall_sent_at) continue;
+      if (isImmunizationRecall && record.immunization_recall_sent_at) continue;
 
       // If NBS recall, skip if NBS card already collected
       if (isNbsRecall && (record.nbs_filter_card_number || record.nbs_status === 'Collected')) {
@@ -129,6 +145,17 @@ export async function GET(request) {
             if (result.success) {
               emailsSent++;
               processedPatients.add(dedupeKey);
+              try {
+                const updatePayload = isNbsRecall 
+                  ? { nbs_recall_sent_at: new Date().toISOString() }
+                  : { immunization_recall_sent_at: new Date().toISOString() };
+                await supabase
+                  .from('postpartum_records')
+                  .update(updatePayload)
+                  .eq('id', record.id);
+              } catch (stampErr) {
+                console.warn(`[Cron:Recalls] Failed to stamp recall timestamp for record ${record.id}:`, stampErr.message);
+              }
             }
           }
         }

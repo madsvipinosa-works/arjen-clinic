@@ -2,6 +2,7 @@
 import { createClient } from "@/utils/supabase/server";
 import { ClinicalCommandCenter } from "@/components/admin/dashboard/clinical-command-center";
 import { getClinicTodayDateString } from "@/lib/utils";
+import { requireStaffSession } from "@/lib/rbac-server";
 
 export const metadata = {
   title: "Clinical Operations Dashboard | AR-JEN Clinic",
@@ -9,6 +10,9 @@ export const metadata = {
 };
 
 export default async function AdminDashboardPage() {
+  // Defense-in-depth: Enforce staff session (Finding 4)
+  await requireStaffSession();
+
   const supabase = await createClient();
   const todayStr = getClinicTodayDateString();
 

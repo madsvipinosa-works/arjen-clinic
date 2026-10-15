@@ -74,13 +74,20 @@ export async function GET(request) {
       .limit(1)
       .maybeSingle();
 
+    const { data: adminUser } = await supabase
+      .from('users')
+      .select('email')
+      .eq('role', 'admin')
+      .limit(1)
+      .maybeSingle();
+
     const { data: adminCred } = await supabase
       .from('admin_credentials')
       .select('email')
       .limit(1)
       .maybeSingle();
 
-    const recipientEmail = settings?.footer_email || adminCred?.email || process.env.EMAIL_USER;
+    const recipientEmail = settings?.footer_email || adminUser?.email || adminCred?.email || process.env.EMAIL_USER;
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://arjenclinic.com';
     const clinicName = settings?.clinic_name || "AR-JEN Maternity Clinic";
 

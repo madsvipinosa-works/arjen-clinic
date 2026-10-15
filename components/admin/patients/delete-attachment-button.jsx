@@ -5,14 +5,15 @@ import { Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { deleteAttachment } from '@/app/actions';
 
-export function DeleteAttachmentButton({ attachmentId, fileUrl, patientId }) {
+export function DeleteAttachmentButton({ attachmentId, fileUrl, filePath, patientId }) {
   const [confirming, setConfirming] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const handleDelete = () => {
     const fd = new FormData();
     fd.append('id', attachmentId);
-    fd.append('file_url', fileUrl);
+    if (fileUrl) fd.append('file_url', fileUrl);
+    if (filePath) fd.append('file_path', filePath);
     fd.append('patient_id', patientId);
     startTransition(async () => {
       await deleteAttachment(fd);

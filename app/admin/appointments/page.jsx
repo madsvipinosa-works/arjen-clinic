@@ -2,6 +2,8 @@ import { createClient } from "@/utils/supabase/server";
 import { updateAppointmentStatus, updateTriageStatus, fetchAppointments } from "../../actions";
 import { AppointmentsManager } from "@/components/admin/appointments-manager";
 import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
+import { requireStaffSession } from "@/lib/rbac-server";
+import { canManageTriageQueue } from "@/lib/rbac";
 
 export const metadata = {
   title: "Appointments & Reception Queue | AR-JEN Clinic Admin",
@@ -9,6 +11,7 @@ export const metadata = {
 };
 
 export default async function AppointmentsPage({ searchParams }) {
+  await requireStaffSession(canManageTriageQueue);
   const supabase = await createClient();
   const params = await searchParams;
   const range = params?.range || "today"; // Default to Today

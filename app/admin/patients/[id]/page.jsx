@@ -26,8 +26,13 @@ import { BreadcrumbTrail } from '@/components/admin/shared/breadcrumb-trail';
 import { Baby, FlaskConical } from 'lucide-react';
 import { DeleteAttachmentButton } from '@/components/admin/patients/delete-attachment-button';
 import Link from 'next/link';
+import { requireStaffSession } from '@/lib/rbac-server';
+import { canAccessClinicalRecords } from '@/lib/rbac';
 
 export default async function PatientDetailPage({ params, searchParams }) {
+  // Enforce server-side clinical role verification (Finding 4)
+  await requireStaffSession(canAccessClinicalRecords);
+
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const id = resolvedParams.id;
@@ -68,6 +73,38 @@ export default async function PatientDetailPage({ params, searchParams }) {
       </div>
     );
   }
+
+  // Generate short-lived signed URLs for private patient records (Finding 1)
+  const attachmentsWithSignedUrls = await Promise.all(
+    (attachments || []).map(async (file) => {
+      const storagePath = file.file_path || file.file_url;
+      try {
+        if (storagePath && !storagePath.startsWith('http://') && !storagePath.startsWith('https://')) {
+          const { data: signedData } = await supabase.storage
+            .from('patient-records')
+            .createSignedUrl(storagePath, 3600);
+          return {
+            ...file,
+            file_url: signedData?.signedUrl || file.file_url
+          };
+        } else if (storagePath && storagePath.includes('/patient-records/')) {
+          const relativePath = storagePath.split('/patient-records/')[1];
+          if (relativePath) {
+            const { data: signedData } = await supabase.storage
+              .from('patient-records')
+              .createSignedUrl(decodeURIComponent(relativePath), 3600);
+            return {
+              ...file,
+              file_url: signedData?.signedUrl || file.file_url
+            };
+          }
+        }
+      } catch (err) {
+        console.warn("[PatientAttachment] Signed URL creation fallback:", err.message);
+      }
+      return file;
+    })
+  );
 
   // Create staff name map
   const staffMap = {};
@@ -365,7 +402,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
 
               {/* Files Grid */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {attachments?.length > 0 ? attachments.map((file) => {
+                {attachmentsWithSignedUrls?.length > 0 ? attachmentsWithSignedUrls.map((file) => {
                   const isImage = ['jpg', 'jpeg', 'png', 'webp', 'gif'].includes(file.file_type?.toLowerCase());
                   return (
                     <div key={file.id} className="group bg-white border border-gray-100 rounded-2xl overflow-hidden hover:shadow-lg transition-all">
@@ -402,6 +439,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
                             <DeleteAttachmentButton 
                               attachmentId={file.id} 
                               fileUrl={file.file_url} 
+                              filePath={file.file_path}
                               patientId={id} 
                             />
                           </div>

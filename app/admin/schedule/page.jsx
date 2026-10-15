@@ -19,12 +19,16 @@ import {
   toggleSundayBlock,
 } from "../../actions";
 
+import { requireStaffSession } from "@/lib/rbac-server";
+import { canManageSystemSettings } from "@/lib/rbac";
+
 export const metadata = {
   title: "Clinic Schedule & Capacity | AR-JEN Clinic Admin",
   description: "Configure booking windows, patient shift limits, and holiday closures for AR-JEN Maternity Clinic.",
 };
 
 export default async function ScheduleSettingsPage() {
+  await requireStaffSession(canManageSystemSettings);
   const supabase = await createClient();
 
   const { data: settings } = await supabase

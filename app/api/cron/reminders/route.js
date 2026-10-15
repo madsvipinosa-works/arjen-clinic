@@ -28,14 +28,29 @@ export async function GET(request) {
 
     const clinicAddress = settings?.clinic_address || "Dasmariñas City, Cavite";
 
-    // 3. Query approved appointments for tomorrow
-    const { data: upcomingAppointments, error: fetchError } = await supabase
+    // 3. Query approved appointments for tomorrow that haven't received a reminder yet
+    let upcomingAppointments = [];
+    const { data: apptsWithTracking, error: trackingError } = await supabase
       .from('appointments')
-      .select('id, time_preference, service_type, appointment_date, patients(id, full_name, account_id, is_high_risk)')
+      .select('id, time_preference, service_type, appointment_date, reminder_sent_at, patients(id, full_name, account_id, is_high_risk)')
       .eq('appointment_date', targetDate)
-      .eq('status', 'Approved');
+      .eq('status', 'Approved')
+      .is('reminder_sent_at', null);
 
-    if (fetchError) throw fetchError;
+    if (!trackingError) {
+      upcomingAppointments = apptsWithTracking || [];
+    } else {
+      // Fallback query if reminder_sent_at column is not yet migrated
+      console.warn('[Cron:Reminders] reminder_sent_at column unmigrated, using fallback query:', trackingError.message);
+      const { data: fallbackAppts, error: fallbackError } = await supabase
+        .from('appointments')
+        .select('id, time_preference, service_type, appointment_date, patients(id, full_name, account_id, is_high_risk)')
+        .eq('appointment_date', targetDate)
+        .eq('status', 'Approved');
+
+      if (fallbackError) throw fallbackError;
+      upcomingAppointments = fallbackAppts || [];
+    }
 
     if (!upcomingAppointments || upcomingAppointments.length === 0) {
       return NextResponse.json({ 
@@ -88,6 +103,14 @@ export async function GET(request) {
 
           if (result.success) {
             emailsSent++;
+            try {
+              await supabase
+                .from('appointments')
+                .update({ reminder_sent_at: new Date().toISOString() })
+                .eq('id', appt.id);
+            } catch (stampErr) {
+              console.warn(`[Cron:Reminders] Failed to stamp reminder_sent_at for ${appt.id}:`, stampErr.message);
+            }
           }
         }
       } catch (recipientErr) {

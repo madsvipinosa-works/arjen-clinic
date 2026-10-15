@@ -9,18 +9,24 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/utils/supabase/server";
 import { logAuditEvent } from "@/lib/audit-logger";
-import { isStaff, canAccessClinicalRecords, canManageSystemSettings } from "@/lib/rbac";
+import { 
+  isStaff, 
+  canAccessClinicalRecords, 
+  canManageSystemSettings, 
+  canManageTriageQueue, 
+  canViewAuditLogs 
+} from "@/lib/rbac";
 import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// AUTHENTICATION HELPERS
+// AUTHENTICATION & GRANULAR RBAC HELPERS
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function verifyAdmin() {
+async function getAuthenticatedUser() {
   const supabaseServer = await createClient();
   const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
-  if (authError || !user) return false;
+  if (authError || !user) return { user: null, role: null, supabaseServer };
 
   const { data: userData } = await supabaseServer
     .from("users")
@@ -28,7 +34,28 @@ async function verifyAdmin() {
     .eq("id", user.id)
     .single();
 
-  return userData && isStaff(userData.role);
+  const role = userData?.role || user?.app_metadata?.role || user?.user_metadata?.role;
+  return { user, role, supabaseServer };
+}
+
+export async function verifyClinicalStaff() {
+  const { user, role } = await getAuthenticatedUser();
+  return !!user && canAccessClinicalRecords(role);
+}
+
+export async function verifySettingsAdmin() {
+  const { user, role } = await getAuthenticatedUser();
+  return !!user && canManageSystemSettings(role);
+}
+
+export async function verifyTriageStaff() {
+  const { user, role } = await getAuthenticatedUser();
+  return !!user && canManageTriageQueue(role);
+}
+
+async function verifyAdmin() {
+  const { user, role } = await getAuthenticatedUser();
+  return !!user && isStaff(role);
 }
 
 async function verifyAuth() {
@@ -46,7 +73,7 @@ async function verifyAuth() {
  *           or via startTransition / useFormState on the client.
  */
 export async function createVisitLog(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifyClinicalStaff())) return { success: false, error: 'Unauthorized: Clinical staff privileges required' };
 
   const patientId = formData.get('patient_id');
   const visitDate = formData.get('visit_date');
@@ -61,32 +88,43 @@ export async function createVisitLog(formData) {
   const newLog = {
     patient_id: patientId,
     visit_date: visitDate,
-    blood_pressure: bloodPressure,
+    bp: bloodPressure,
     weight: weight,
-    notes: notes,
+    doctor_notes: notes,
     created_at: new Date().toISOString(),
   };
 
   const supabaseServer = await createClient();
   const { data, error } = await supabaseServer
     .from('visit_logs')
-    .insert(newLog);
+    .insert(newLog)
+    .select('id')
+    .single();
 
   if (error) {
     console.error('[createVisitLog] Supabase error:', error.message);
     return { success: false, error: error.message };
   }
 
+  await logAuditEvent({
+    action: 'LOG_PRENATAL_VISIT',
+    entityType: 'visit_logs',
+    entityId: data?.id || null,
+    details: { patient_id: patientId, visit_date: visitDate, bp: bloodPressure, weight }
+  });
+
   return { success: true, error: null };
 }
 
 /**
  * createPatient(formData)
+ * Uses transactional atomic function register_patient_atomic to guarantee
+ * patient, maternal_episodes, and prenatal_records commit together or rollback.
  */
 export async function createPatient(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifyClinicalStaff())) return { success: false, error: 'Unauthorized: Clinical staff privileges required' };
 
-  const full_name = formData.get('full_name');
+  const full_name = formData.get('full_name')?.toString().trim();
   const date_of_birth = formData.get('date_of_birth') || null;
   const age = formData.get('age');
   const civil_status = formData.get('civil_status') || null;
@@ -106,69 +144,104 @@ export async function createPatient(formData) {
     return { success: false, error: 'Patient full name is required.' };
   }
 
-  const newPatient = {
-    full_name,
-    date_of_birth,
-    age: age ? parseInt(age, 10) : null,
-    civil_status,
-    husband_partner_name,
-    address,
-    contact_number,
-    blood_type,
-    allergies,
-    philhealth_number,
-    is_high_risk,
-    created_at: new Date().toISOString(),
-  };
-
   const supabaseServer = await createClient();
-  const { data: patientRow, error } = await supabaseServer
-    .from('patients')
-    .insert(newPatient)
-    .select('id')
-    .single();
 
-  if (error) {
-    console.error('[createPatient] Supabase error:', error.message);
-    return { success: false, error: error.message };
+  // 1. Attempt atomic registration via PostgreSQL RPC
+  const { data: rpcData, error: rpcError } = await supabaseServer.rpc('register_patient_atomic', {
+    p_full_name: full_name,
+    p_date_of_birth: date_of_birth,
+    p_age: age ? parseInt(age, 10) : null,
+    p_civil_status: civil_status,
+    p_husband_partner_name: husband_partner_name,
+    p_address: address,
+    p_contact_number: contact_number,
+    p_blood_type: blood_type,
+    p_allergies: allergies,
+    p_philhealth_number: philhealth_number,
+    p_is_high_risk: is_high_risk,
+    p_lmp: lmp,
+    p_gravida: gravida,
+    p_para: para,
+  });
+
+  let patientId = null;
+
+  if (!rpcError && rpcData?.success) {
+    patientId = rpcData.patient_id;
+  } else {
+    // If RPC failed due to missing migration on current client, execute safe multi-step with explicit checks
+    console.warn('[createPatient] register_patient_atomic RPC fallback:', rpcError?.message || rpcData?.error);
+    
+    const newPatient = {
+      full_name,
+      date_of_birth,
+      age: age ? parseInt(age, 10) : null,
+      civil_status,
+      husband_partner_name,
+      address,
+      contact_number,
+      blood_type,
+      allergies,
+      philhealth_number,
+      is_high_risk,
+      created_at: new Date().toISOString(),
+    };
+
+    const { data: patientRow, error: pError } = await supabaseServer
+      .from('patients')
+      .insert(newPatient)
+      .select('id')
+      .single();
+
+    if (pError || !patientRow) {
+      console.error('[createPatient] Patient insert error:', pError?.message);
+      return { success: false, error: pError?.message || 'Failed to create patient record.' };
+    }
+
+    patientId = patientRow.id;
+
+    if (lmp) {
+      const edc = new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+      const { error: epError } = await supabaseServer
+        .from('maternal_episodes')
+        .insert({
+          patient_id: patientId,
+          lmp,
+          edc,
+          gravida,
+          para,
+          status: 'Active',
+        });
+      if (epError) {
+        console.error('[createPatient] Maternal episode insert error:', epError.message);
+      }
+    }
+
+    const { error: recError } = await supabaseServer
+      .from('prenatal_records')
+      .insert({ patient_id: patientId, modular_data: {} });
+    if (recError) {
+      console.error('[createPatient] Prenatal record shell insert error:', recError.message);
+    }
   }
 
-  // If LMP is provided, automatically instantiate initial Active Maternal Episode
-  if (lmp) {
-    const edc = new Date(new Date(lmp).getTime() + 280 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-    await supabaseServer
-      .from('maternal_episodes')
-      .insert({
-        patient_id: patientRow.id,
-        lmp,
-        edc,
-        gravida,
-        para,
-        status: 'Active',
-      });
-  }
-
-  // Auto-create a prenatal_records row so modular records work immediately
-  await supabaseServer
-    .from('prenatal_records')
-    .insert({ patient_id: patientRow.id, modular_data: {} });
-
-  // DPA Audit Trail
+  // Record immutable DPA 2012 audit log
   await logAuditEvent({
     action: 'CREATE_PATIENT',
     entityType: 'patients',
-    entityId: patientRow.id,
+    entityId: patientId,
     details: {
-      full_name: newPatient.full_name,
-      age: newPatient.age,
-      is_high_risk: newPatient.is_high_risk,
-      blood_type: newPatient.blood_type,
+      full_name,
+      age: age ? parseInt(age, 10) : null,
+      is_high_risk,
+      blood_type,
       lmp: lmp || null,
-    }
+    },
+    strict: true,
   });
 
   revalidatePath('/admin/patients');
-  redirect(`/admin/patients/${patientRow.id}`);
+  redirect(`/admin/patients/${patientId}`);
 }
 
 /**
@@ -1583,7 +1656,7 @@ export async function updatePrenatal(formData) {
  * Audited under DPA 2012 (RA 10173).
  */
 export async function updateSettings(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const clinic_name = formData.get('clinic_name')?.toString().trim();
@@ -1638,7 +1711,7 @@ export async function updateSettings(formData) {
  * updateServices(servicesJson)
  */
 export async function updateServices(servicesJson) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const { error } = await supabaseServer.from('clinic_settings').upsert({
@@ -1671,7 +1744,7 @@ export async function updateServices(servicesJson) {
  * addBlockedDate(formData)
  */
 export async function addBlockedDate(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const blocked_date = formData.get('blocked_date');
@@ -1695,7 +1768,7 @@ export async function addBlockedDate(formData) {
  * removeBlockedDate(formData)
  */
 export async function removeBlockedDate(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const id = formData.get('id');
@@ -1716,7 +1789,7 @@ export async function removeBlockedDate(formData) {
  * addTimeSlot(formData)
  */
 export async function addTimeSlot(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const start_time = formData.get('start_time');
@@ -1774,7 +1847,7 @@ export async function addTimeSlot(formData) {
  * updateTimeSlot(formData)
  */
 export async function updateTimeSlot(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const id = formData.get('id');
@@ -1827,7 +1900,7 @@ export async function updateTimeSlot(formData) {
  * deleteTimeSlot(formData)
  */
 export async function deleteTimeSlot(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const id = formData.get('id');
@@ -1848,7 +1921,7 @@ export async function deleteTimeSlot(formData) {
  * updateTimeSlotCapacity(formData)
  */
 export async function updateTimeSlotCapacity(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const id = formData.get('id');
@@ -1870,7 +1943,7 @@ export async function updateTimeSlotCapacity(formData) {
  * toggleSaturdayBlock(formData)
  */
 export async function toggleSaturdayBlock(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const block_saturday = formData.get('block_saturday') === 'true';
@@ -1891,7 +1964,7 @@ export async function toggleSaturdayBlock(formData) {
  * toggleSundayBlock(formData)
  */
 export async function toggleSundayBlock(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const block_sunday = formData.get('block_sunday') === 'true';
@@ -2106,7 +2179,7 @@ export async function updateConsultationStatus(formData) {
  * uploadAttachment(formData)
  */
 export async function uploadAttachment(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifyClinicalStaff())) return { success: false, error: 'Unauthorized: Clinical staff privileges required' };
 
   const supabaseServer = await createClient();
   const patient_id = formData.get('patient_id');
@@ -2117,7 +2190,7 @@ export async function uploadAttachment(formData) {
     return { success: false, error: 'Missing file or patient ID.' };
   }
 
-  // 2C: Server-side validation — 10 MB limit
+  // Server-side validation — 10 MB limit
   const MAX_SIZE = 10 * 1024 * 1024;
   if (file.size > MAX_SIZE) {
     return { success: false, error: 'File is too large. Maximum allowed size is 10 MB.' };
@@ -2132,35 +2205,49 @@ export async function uploadAttachment(formData) {
   const fileName = `${patient_id}/${Date.now()}.${fileExt}`;
   const filePath = `${fileName}`;
 
+  // Upload to private patient-records bucket
   const { data: uploadData, error: uploadError } = await supabaseServer
     .storage
     .from('patient-records')
-    .upload(filePath, file);
+    .upload(filePath, file, { contentType: file.type || undefined });
 
   if (uploadError) {
     console.error('[uploadAttachment] Storage error:', uploadError.message);
     return { success: false, error: uploadError.message };
   }
 
-  const { data: { publicUrl } } = supabaseServer
-    .storage
-    .from('patient-records')
-    .getPublicUrl(filePath);
-
-  const { error: dbError } = await supabaseServer
+  // Store relative file_path (and file_url for backward compatibility)
+  const { data: insertedAttachment, error: dbError } = await supabaseServer
     .from('patient_attachments')
     .insert({
       patient_id,
       file_name: file.name,
-      file_url: publicUrl,
+      file_path: filePath,
+      file_url: filePath,
       file_type: fileExt,
       category
-    });
+    })
+    .select('id')
+    .single();
 
   if (dbError) {
     console.error('[uploadAttachment] DB error:', dbError.message);
     return { success: false, error: dbError.message };
   }
+
+  await logAuditEvent({
+    action: 'UPLOAD_PATIENT_ATTACHMENT',
+    entityType: 'patient_attachments',
+    entityId: insertedAttachment?.id || null,
+    details: {
+      patient_id,
+      file_name: file.name,
+      file_type: fileExt,
+      category,
+      file_size: file.size,
+    },
+    strict: true,
+  });
 
   revalidatePath(`/admin/patients/${patient_id}`);
   return { success: true };
@@ -2170,22 +2257,96 @@ export async function uploadAttachment(formData) {
  * deleteAttachment(formData)
  */
 export async function deleteAttachment(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifyClinicalStaff())) return { success: false, error: 'Unauthorized: Clinical staff privileges required' };
 
   const supabaseServer = await createClient();
   const id = formData.get('id');
   const file_url = formData.get('file_url');
+  const file_path = formData.get('file_path');
   const patient_id = formData.get('patient_id');
 
-  if (!id || !file_url) return;
+  if (!id) return { success: false, error: 'Missing attachment ID.' };
 
-  const pathParts = file_url.split('/patient-records/');
-  const filePath = pathParts[pathParts.length - 1];
+  let filePath = file_path;
+  if (!filePath && file_url) {
+    filePath = file_url.includes('/patient-records/')
+      ? file_url.split('/patient-records/').pop()
+      : file_url;
+  }
+  if (filePath && filePath.includes('?')) {
+    filePath = filePath.split('?')[0];
+  }
 
-  await supabaseServer.storage.from('patient-records').remove([filePath]);
+  if (filePath) {
+    await supabaseServer.storage.from('patient-records').remove([filePath]);
+  }
   await supabaseServer.from('patient_attachments').delete().eq('id', id);
 
+  await logAuditEvent({
+    action: 'DELETE_PATIENT_ATTACHMENT',
+    entityType: 'patient_attachments',
+    entityId: id,
+    details: { patient_id, filePath },
+    strict: true,
+  });
+
   revalidatePath(`/admin/patients/${patient_id}`);
+  return { success: true };
+}
+
+/**
+ * clearMaternalRiskFlag(formData)
+ * ─────────────────────────────────────────────────────────────────────────────
+ * Enables an authorized clinician (Doctor / Midwife) to resolve/clear a high-risk
+ * maternal flag with statutory justification notes and immutable audit trail.
+ */
+export async function clearMaternalRiskFlag(formData) {
+  if (!(await verifyClinicalStaff())) {
+    return { success: false, error: 'Unauthorized: Clinical staff privileges required to resolve maternal risk.' };
+  }
+
+  const patientId = formData.get('patient_id');
+  const rationale = (formData.get('rationale') || formData.get('clearance_reason'))?.toString().trim();
+
+  if (!patientId || !rationale) {
+    return { success: false, error: 'Patient ID and clinical resolution rationale are required.' };
+  }
+
+  const { user, supabaseServer } = await getAuthenticatedUser();
+
+  const { error: updateError } = await supabaseServer
+    .from('patients')
+    .update({
+      is_high_risk: false,
+      risk_cleared_at: new Date().toISOString(),
+      risk_cleared_by: user?.id || null,
+      risk_cleared_notes: rationale,
+    })
+    .eq('id', patientId);
+
+  if (updateError) {
+    console.error('[clearMaternalRiskFlag] Error:', updateError.message);
+    return { success: false, error: updateError.message };
+  }
+
+  await logAuditEvent({
+    action: 'CLEAR_MATERNAL_RISK_FLAG',
+    entityType: 'patients',
+    entityId: patientId,
+    details: {
+      rationale,
+      cleared_by: user?.email,
+      timestamp: new Date().toISOString(),
+    },
+    userOverride: user,
+    supabaseOverride: supabaseServer,
+    strict: true,
+  });
+
+  revalidatePath(`/admin/patients/${patientId}`);
+  revalidatePath('/admin/patients');
+  revalidatePath('/admin');
+  return { success: true };
 }
 
 /**
@@ -2488,7 +2649,7 @@ export async function updatePostpartumRecord(formData) {
  * CALLED  : From the Hero Image card on /admin/settings
  */
 export async function updateHeroImage(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const action = formData.get('action'); // 'upload' | 'remove' | 'url'
@@ -2569,33 +2730,19 @@ export async function updateHeroImage(formData) {
   const timestamp = Date.now();
   const filePath = `hero/${position}_${timestamp}.${fileExt}`;
 
-  let publicUrl = null;
-
-  // 1. Try uploading to clinic-assets
+  // Upload exclusively to clinic-assets
   const { error: uploadError } = await supabaseServer
     .storage
     .from('clinic-assets')
     .upload(filePath, file, { upsert: true, contentType: file.type || 'image/jpeg' });
 
-  if (!uploadError) {
-    const { data } = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath);
-    publicUrl = data?.publicUrl;
-  } else {
-    console.warn('[updateHeroImage] clinic-assets upload warning:', uploadError.message);
-    // 2. Fallback to patient-records bucket
-    const { error: fallbackError } = await supabaseServer
-      .storage
-      .from('patient-records')
-      .upload(filePath, file, { upsert: true, contentType: file.type || 'image/jpeg' });
-
-    if (fallbackError) {
-      console.error('[updateHeroImage] Both storage buckets failed:', fallbackError.message);
-      return { success: false, error: fallbackError.message };
-    }
-
-    const { data } = supabaseServer.storage.from('patient-records').getPublicUrl(filePath);
-    publicUrl = data?.publicUrl;
+  if (uploadError) {
+    console.error('[updateHeroImage] clinic-assets upload failed:', uploadError.message);
+    return { success: false, error: uploadError.message };
   }
+
+  const { data } = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath);
+  const publicUrl = data?.publicUrl;
 
   if (!publicUrl) {
     return { success: false, error: 'Failed to generate public URL for uploaded photo.' };
@@ -2665,7 +2812,7 @@ export async function updateHeroContent(formData) {
  * updateNavbarLogo(formData)
  */
 export async function updateNavbarLogo(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const action = formData.get('action'); // 'upload' | 'remove'
@@ -2703,16 +2850,15 @@ export async function updateNavbarLogo(formData) {
   const fileExt = (rawExt || 'png').toLowerCase();
   const filePath = `logo/${Date.now()}.${fileExt}`;
 
+  // Upload exclusively to clinic-assets
   const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
 
-  let publicUrl = '';
   if (uploadError) {
-    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
-    if (fallbackError) return { success: false, error: fallbackError.message };
-    publicUrl = supabaseServer.storage.from('patient-records').getPublicUrl(filePath).data.publicUrl;
-  } else {
-    publicUrl = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath).data.publicUrl;
+    console.error('[updateNavbarLogo] clinic-assets upload failed:', uploadError.message);
+    return { success: false, error: uploadError.message };
   }
+
+  const publicUrl = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath).data.publicUrl;
 
   const { error: dbError } = await supabaseServer.from('clinic_settings').update({ navbar_logo: publicUrl }).eq('id', 1);
   if (dbError) return { success: false, error: dbError.message };
@@ -2733,7 +2879,7 @@ export async function updateNavbarLogo(formData) {
  * updateFavicon(formData)
  */
 export async function updateFavicon(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  if (!(await verifySettingsAdmin())) return { success: false, error: 'Unauthorized: Clinic Administrator privileges required.' };
 
   const supabaseServer = await createClient();
   const action = formData.get('action'); // 'upload' | 'remove' | 'sync_logo'
@@ -2790,16 +2936,15 @@ export async function updateFavicon(formData) {
   const fileExt = file.name?.split('.').pop().toLowerCase() || 'png';
   const filePath = `favicon/${Date.now()}.${fileExt}`;
 
+  // Upload exclusively to clinic-assets
   const { error: uploadError } = await supabaseServer.storage.from('clinic-assets').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
 
-  let publicUrl = '';
   if (uploadError) {
-    const { error: fallbackError } = await supabaseServer.storage.from('patient-records').upload(filePath, file, { upsert: true, contentType: file.type || 'image/png' });
-    if (fallbackError) return { success: false, error: fallbackError.message };
-    publicUrl = supabaseServer.storage.from('patient-records').getPublicUrl(filePath).data.publicUrl;
-  } else {
-    publicUrl = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath).data.publicUrl;
+    console.error('[updateFavicon] clinic-assets upload failed:', uploadError.message);
+    return { success: false, error: uploadError.message };
   }
+
+  const publicUrl = supabaseServer.storage.from('clinic-assets').getPublicUrl(filePath).data.publicUrl;
 
   const { error: dbError } = await supabaseServer.from('clinic_settings').update({ favicon_url: publicUrl }).eq('id', 1);
   if (dbError) return { success: false, error: dbError.message };

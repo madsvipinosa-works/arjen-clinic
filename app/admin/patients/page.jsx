@@ -1,6 +1,8 @@
 // app/admin/patients/page.jsx
 import { createClient } from '@/utils/supabase/server';
 import { PatientDirectoryClient } from '@/components/admin/patients/patient-directory-client';
+import { requireStaffSession } from '@/lib/rbac-server';
+import { canAccessClinicalRecords } from '@/lib/rbac';
 
 export const metadata = {
   title: 'Patient Directory | AR-JEN Clinic EMR',
@@ -8,6 +10,9 @@ export const metadata = {
 };
 
 export default async function PatientsPage({ searchParams }) {
+  // Defense-in-depth: Enforce clinical records permission (Finding 4)
+  await requireStaffSession(canAccessClinicalRecords);
+
   const params = await searchParams;
   const query = params?.search || '';
   const filter = params?.filter || 'all';

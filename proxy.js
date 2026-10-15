@@ -1,5 +1,12 @@
+// proxy.js
+// ─────────────────────────────────────────────────────────────────────────────
+// AR-JEN MATERNITY CLINIC: NEXT.JS EDGE PROXY
+// Enforces authentication and clinical staff role authorization across /admin routes.
+// Compliant with Philippine Data Privacy Act of 2012 (RA 10173).
+// ─────────────────────────────────────────────────────────────────────────────
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse } from "next/server";
+import { CLINICAL_ROLES } from "@/lib/rbac";
 
 function sanitizeSupabaseCookies(cookiesList) {
   if (!Array.isArray(cookiesList)) return [];
@@ -48,11 +55,13 @@ function sanitizeSupabaseCookies(cookiesList) {
 }
 
 export async function proxy(request) {
-  // Only intercept protected /admin routes (skip /admin/login and /api)
+  const pathname = request.nextUrl.pathname;
+
+  // Only intercept /admin routes (skip /admin/login, static files, and public APIs)
   if (
-    !request.nextUrl.pathname.startsWith('/admin') ||
-    request.nextUrl.pathname.startsWith('/admin/login') ||
-    request.nextUrl.pathname.startsWith('/api')
+    !pathname.startsWith('/admin') ||
+    pathname.startsWith('/admin/login') ||
+    pathname.startsWith('/api')
   ) {
     return NextResponse.next();
   }
@@ -89,13 +98,31 @@ export async function proxy(request) {
     } = await supabase.auth.getUser();
 
     if (error || !user) {
-      // No user session, redirect to admin login
+      // No valid session, redirect to admin login
       const url = request.nextUrl.clone();
       url.pathname = '/admin/login';
       return NextResponse.redirect(url);
     }
+
+    // 2. Strict RBAC Guard: Verify user has a staff clinical role (prevent patients from browsing /admin)
+    const { data: userData } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .single();
+
+    const role = (userData?.role || user?.app_metadata?.role || user?.user_metadata?.role || "").toLowerCase();
+
+    if (!role || !CLINICAL_ROLES.includes(role)) {
+      // Authenticated user is a patient or unauthorized role
+      const url = request.nextUrl.clone();
+      url.pathname = '/admin/login';
+      url.searchParams.set('error', 'Access Restricted: Clinic staff credentials required');
+      return NextResponse.redirect(url);
+    }
+
   } catch (err) {
-    console.error("[proxy] Auth check caught exception:", err?.message);
+    console.error("[middleware] Auth check caught exception:", err?.message);
     const url = request.nextUrl.clone();
     url.pathname = '/admin/login';
     return NextResponse.redirect(url);
@@ -109,4 +136,6 @@ export const config = {
     '/admin/:path*',
   ],
 };
+
+export { proxy as middleware };
 

@@ -1,6 +1,10 @@
--- Migration: Module 3 - Billing, Cashiering & PhilHealth Claims Tracker
--- STRICT SCOPE: Purely an internal administrative ledger and claims pipeline tracker.
--- NO external payment gateways or webhooks.
+-- ==============================================================================
+-- ⚠️ DEPRECATED & PURGED — DO NOT EXECUTE
+-- SCOPE FREEZE MANDATE: Financial billing, invoices, cashiering, and external
+-- PhilHealth reimbursement claims tracking have been permanently purged from
+-- AR-JEN Maternity Clinic system architecture.
+-- Superseded by: 20261016000200_purge_out_of_scope_billing.sql
+-- ==============================================================================
 
 -- 1. Create Invoices Table
 CREATE TABLE IF NOT EXISTS public.invoices (

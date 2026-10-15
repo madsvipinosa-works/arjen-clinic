@@ -269,36 +269,6 @@ export async function createAppointment(formData) {
     redirect("/book?error=The selected appointment time slot has already passed. Please select an upcoming date and time.");
   }
 
-  // Capacity Check
-  const { data: slotRecord } = await supabase
-    .from('time_slots')
-    .select('max_capacity')
-    .eq('label', time)
-    .single();
-
-  const { data: settings } = await supabase
-    .from('clinic_settings')
-    .select('max_morning_slots, max_afternoon_slots, clinic_address, clinic_contact')
-    .eq('id', 1)
-    .single();
-
-  const maxSlots = slotRecord?.max_capacity 
-    ?? (time === 'AM' ? (settings?.max_morning_slots || 10) : (settings?.max_afternoon_slots || 10));
-  
-  const { count, error: countError } = await supabase.from('appointments')
-    .select('*', { count: 'exact', head: true })
-    .eq('appointment_date', appointment_date)
-    .eq('time_preference', time)
-    .neq('status', 'Cancelled');
-    
-  if (countError) {
-    redirect(`/book?error=${encodeURIComponent(countError.message)}`);
-  }
-  
-  if (count >= maxSlots) {
-    redirect(`/book?error=The ${time} window on this date is fully booked. Please choose another date or time.`);
-  }
-
   // Handle Patient Identity
   let patientId = formData.get("patient_id");
   let patientName = formData.get("patient_name");
@@ -347,6 +317,13 @@ export async function createAppointment(formData) {
     }
   }
 
+  // Fetch clinic settings for email notification details & fallback capacity
+  const { data: settings } = await supabase
+    .from('clinic_settings')
+    .select('max_morning_slots, max_afternoon_slots, clinic_address, clinic_contact')
+    .eq('id', 1)
+    .single();
+
   // Sprint 2: Smart Triage Auto-Approval Engine
   let initialStatus = 'Pending';
   
@@ -371,18 +348,69 @@ export async function createAppointment(formData) {
     }
   }
 
-  // Save the appointment
-  const { error } = await supabase.from('appointments').insert({ 
-    patient_id: patientId, 
-    service_type, 
-    appointment_date,
-    time_preference: time,
-    notes: notes,
-    status: initialStatus
-  });
+  // Atomic Slot Capacity Reservation (Finding 7)
+  let appointmentCreated = false;
+  try {
+    const { data: rpcResult, error: rpcError } = await supabase.rpc('reserve_appointment_slot', {
+      p_patient_id: patientId,
+      p_service_type: service_type,
+      p_appointment_date: appointment_date,
+      p_time_preference: time,
+      p_notes: notes || null,
+      p_is_walkin: false,
+      p_status: initialStatus
+    });
 
-  if (error) {
-    redirect(`/book?error=${encodeURIComponent(error.message)}`);
+    if (!rpcError && rpcResult) {
+      if (!rpcResult.success) {
+        redirect(`/book?error=${encodeURIComponent(rpcResult.error || "The selected time window is fully booked.")}`);
+      }
+      appointmentCreated = true;
+    } else if (rpcError) {
+      console.warn("[Booking] reserve_appointment_slot RPC error, engaging fallback:", rpcError.message);
+    }
+  } catch (err) {
+    if (err?.digest?.startsWith('NEXT_REDIRECT')) throw err;
+    console.warn("[Booking] RPC exception, engaging fallback:", err.message);
+  }
+
+  // Fallback to standard check + insert if atomic RPC is not yet applied
+  if (!appointmentCreated) {
+    const { data: slotRecord } = await supabase
+      .from('time_slots')
+      .select('max_capacity')
+      .eq('label', time)
+      .single();
+
+    const maxSlots = slotRecord?.max_capacity 
+      ?? (time === 'AM' ? (settings?.max_morning_slots || 10) : (settings?.max_afternoon_slots || 10));
+    
+    const { count, error: countError } = await supabase.from('appointments')
+      .select('*', { count: 'exact', head: true })
+      .eq('appointment_date', appointment_date)
+      .eq('time_preference', time)
+      .neq('status', 'Cancelled');
+      
+    if (countError) {
+      redirect(`/book?error=${encodeURIComponent(countError.message)}`);
+    }
+    
+    if (count >= maxSlots) {
+      redirect(`/book?error=The ${time} window on this date is fully booked. Please choose another date or time.`);
+    }
+
+    const { error: insertError } = await supabase.from('appointments').insert({ 
+      patient_id: patientId, 
+      service_type, 
+      appointment_date,
+      time_preference: time,
+      notes: notes,
+      status: initialStatus
+    });
+
+    if (insertError) {
+      redirect(`/book?error=${encodeURIComponent(insertError.message)}`);
+    }
   }
 
   // 3. Strict Mandate: Email confirmation dispatched ONLY after booking of appointment

@@ -37,17 +37,29 @@ export async function GET(request) {
       });
     }
 
-    // 4. Mark them as No-Show and triage_status as missed
+    // 4. Mark them as No-Show and triage_status as missed with reconciled_at timestamp
     const missedIds = missedAppointments.map(a => a.id);
-    const { error: updateError } = await supabase
+    const nowIso = new Date().toISOString();
+    let { error: updateError } = await supabase
       .from('appointments')
       .update({ 
         status: 'No-Show',
-        triage_status: 'missed'
+        triage_status: 'missed',
+        reconciled_at: nowIso
       })
       .in('id', missedIds);
 
-    if (updateError) throw updateError;
+    if (updateError) {
+      console.warn('[Cron:Reconcile] Error updating with reconciled_at, falling back:', updateError.message);
+      const fallbackResult = await supabase
+        .from('appointments')
+        .update({ 
+          status: 'No-Show',
+          triage_status: 'missed'
+        })
+        .in('id', missedIds);
+      if (fallbackResult.error) throw fallbackResult.error;
+    }
 
     // 5. Send empathetic care recovery emails
     let emailsSent = 0;

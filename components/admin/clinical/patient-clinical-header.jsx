@@ -14,7 +14,7 @@ import { Label } from '@/components/ui/label';
 import { PrintRecordButton } from '@/components/admin/patients/print-record-button';
 import { EmergencyTransferModal } from '@/components/admin/clinical/emergency-transfer-modal';
 import { calculateObstetricDates } from '@/lib/clinical-protocols';
-import { createMaternalEpisode, updateMaternalEpisode } from '@/app/actions';
+import { createMaternalEpisode, updateMaternalEpisode, clearMaternalRiskFlag } from '@/app/actions';
 
 export function PatientClinicalHeader({
   patient,
@@ -28,8 +28,26 @@ export function PatientClinicalHeader({
   const [isPending, startTransition] = useTransition();
   const [showEpisodeModal, setShowEpisodeModal] = useState(false);
   const [showTransferModal, setShowTransferModal] = useState(false);
+  const [showClearRiskModal, setShowClearRiskModal] = useState(false);
   const [modalMode, setModalMode] = useState('create'); // 'create' | 'edit'
   const [error, setError] = useState(null);
+  const [clearRiskError, setClearRiskError] = useState(null);
+
+  // Clear Maternal Risk Flag Handler (Finding 9)
+  const handleClearRisk = (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    startTransition(async () => {
+      const res = await clearMaternalRiskFlag(fd);
+      if (res?.success === false) {
+        setClearRiskError(res.error);
+      } else {
+        setShowClearRiskModal(false);
+        setClearRiskError(null);
+        router.refresh();
+      }
+    });
+  };
 
   // 1. Single Source of Truth Obstetric Dates from Safety Engine
   const lmpDate = activeEpisode?.lmp || patient?.lmp;
@@ -428,16 +446,45 @@ export function PatientClinicalHeader({
         {/* ── Prominent Safety & High-Risk Alert Banners (Magic UI style) ── */}
         {(patient?.is_high_risk || hasRealAllergies || obstetricData?.boundaryAlert) && (
           <div className="pt-2 flex flex-wrap items-center gap-2.5">
-            {patient?.is_high_risk && (
-              <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white font-black text-xs px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-sm shadow-red-500/25">
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
-                </span>
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>HIGH RISK PREGNANCY</span>
+            {patient?.is_high_risk ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="bg-gradient-to-r from-red-500 to-rose-600 text-white font-black text-xs px-3.5 py-1.5 rounded-full flex items-center gap-2 shadow-sm shadow-red-500/25">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-white" />
+                  </span>
+                  <ShieldAlert className="w-3.5 h-3.5" />
+                  <span>HIGH RISK PREGNANCY</span>
+                  {patient?.risk_reasons && Array.isArray(patient.risk_reasons) && patient.risk_reasons.length > 0 && (
+                    <span className="text-[10px] font-semibold bg-red-700/80 px-2 py-0.5 rounded-full">
+                      {patient.risk_reasons.join(' · ')}
+                    </span>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setClearRiskError(null);
+                    setShowClearRiskModal(true);
+                  }}
+                  className="h-7 text-[11px] font-bold rounded-full border-red-200 text-red-700 hover:bg-red-50 hover:border-red-300 gap-1 active:scale-[0.98] transition-all"
+                >
+                  <ShieldCheck className="w-3 h-3 text-emerald-600" />
+                  <span>Clear Risk Flag</span>
+                </Button>
               </div>
-            )}
+            ) : patient?.risk_cleared_at ? (
+              <div 
+                className="bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs" 
+                title={`Cleared on ${new Date(patient.risk_cleared_at).toLocaleDateString()} by ${patient.risk_cleared_by || 'Clinician'}: ${patient.risk_cleared_notes || patient.risk_clearance_reason || 'Normative vitals'}`}
+              >
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
+                <span>Risk Flag Cleared: {patient.risk_cleared_notes || patient.risk_clearance_reason ? ((patient.risk_cleared_notes || patient.risk_clearance_reason).length > 30 ? `${(patient.risk_cleared_notes || patient.risk_clearance_reason).slice(0, 30)}...` : (patient.risk_cleared_notes || patient.risk_clearance_reason)) : 'Clinically Stable'}</span>
+              </div>
+            ) : null}
 
             {hasRealAllergies && (
               <div className="bg-amber-100 border border-amber-300 text-amber-900 font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs">
@@ -567,6 +614,93 @@ export function PatientClinicalHeader({
                   className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold px-5 h-10 rounded-xl shadow-md shadow-rose-500/20 active:scale-[0.98] transition-all"
                 >
                   {isPending ? 'Saving...' : modalMode === 'create' ? 'Create Episode' : 'Save Changes'}
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal: Clinician High-Risk Clearance ── */}
+      {showClearRiskModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl border border-gray-200 shadow-2xl max-w-md w-full p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base">Clear Maternal High-Risk Flag</h3>
+                  <p className="text-xs text-gray-400">Clinical Attending Safety Sign-off</p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowClearRiskModal(false);
+                  setClearRiskError(null);
+                }}
+                className="h-8 w-8 p-0 text-gray-400 hover:text-gray-700 rounded-full"
+              >
+                <X className="w-4 h-4" />
+              </Button>
+            </div>
+
+            {clearRiskError && (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{clearRiskError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleClearRisk} className="space-y-4">
+              <input type="hidden" name="patient_id" value={id} />
+
+              <div className="p-3.5 bg-amber-50/80 border border-amber-200/80 rounded-2xl text-xs text-amber-900 space-y-1">
+                <p className="font-bold flex items-center gap-1.5">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600" /> Clinical Review Requirement
+                </p>
+                <p className="text-[11px] leading-relaxed text-amber-800">
+                  Clearing a maternal risk flag removes priority alerts and allows routine lying-in care. Please document clinical findings (e.g. normalized blood pressure over consecutive visits, normal ultrasound biometry, or physician consultation).
+                </p>
+              </div>
+
+              <div>
+                <Label className="text-xs font-bold text-gray-700 block mb-1.5">
+                  Clinical Clearance Justification <span className="text-red-500">*</span>
+                </Label>
+                <textarea
+                  name="clearance_reason"
+                  required
+                  rows={3}
+                  placeholder="e.g., Blood pressure normalized to 110/70 mmHg on 3 consecutive visits. Urinalysis negative for protein. Cleared by Dr. Santos."
+                  className="w-full text-xs p-3 rounded-2xl border border-gray-200 bg-white focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 outline-none resize-none leading-relaxed"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-gray-100">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    setShowClearRiskModal(false);
+                    setClearRiskError(null);
+                  }}
+                  className="text-xs font-semibold rounded-xl"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={isPending}
+                  size="sm"
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-5 h-10 rounded-xl shadow-md shadow-emerald-600/20 active:scale-[0.98] transition-all"
+                >
+                  {isPending ? 'Verifying...' : 'Confirm Clearance'}
                 </Button>
               </div>
             </form>
