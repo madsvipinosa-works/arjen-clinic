@@ -91,7 +91,7 @@ DECLARE
   v_current_count INT;
   v_appointment_id UUID;
   v_status TEXT := 'Pending';
-  v_triage_status TEXT := 'waiting';
+  v_triage_status TEXT := 'Waiting';
 BEGIN
   -- 1. Determine configured capacity limit for the requested time preference
   SELECT max_capacity INTO v_max_capacity
@@ -133,14 +133,14 @@ BEGIN
   END IF;
 
   IF v_status = 'Approved' THEN
-    v_triage_status := 'waiting';
+    v_triage_status := 'Waiting';
   END IF;
 
   -- 5. Insert new appointment row atomically
   INSERT INTO public.appointments (
-    patient_id, service_type, appointment_date, time_preference, notes, is_walkin, status, triage_status
+    patient_id, service_type, appointment_date, time_preference, notes, is_walk_in, status, triage_status
   ) VALUES (
-    p_patient_id, p_service_type, p_appointment_date, p_time_preference, p_notes, p_is_walkin, v_status, v_triage_status
+    p_patient_id, p_service_type, p_appointment_date, p_time_preference, p_notes, COALESCE(p_is_walkin, false), v_status, v_triage_status
   ) RETURNING id INTO v_appointment_id;
 
   RETURN jsonb_build_object(
