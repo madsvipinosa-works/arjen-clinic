@@ -1,4 +1,4 @@
-// app/admin/patients/page.jsx
+import { Suspense } from 'react';
 import { createClient } from '@/utils/supabase/server';
 import { PatientDirectoryClient } from '@/components/admin/patients/patient-directory-client';
 import { requireStaffSession } from '@/lib/rbac-server';
@@ -33,10 +33,12 @@ export default async function PatientsPage({ searchParams }) {
 
   return (
     <div className="w-full">
-      <PatientDirectoryClient
-        initialPatients={patients || []}
-        totalDbCount={count || 0}
-      />
+      <Suspense fallback={<div className="h-64 flex items-center justify-center text-gray-400">Loading directory...</div>}>
+        <PatientDirectoryClient
+          initialPatients={patients || []}
+          totalDbCount={count || 0}
+        />
+      </Suspense>
     </div>
   );
 }

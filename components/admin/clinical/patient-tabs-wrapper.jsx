@@ -1,7 +1,6 @@
 'use client';
 
-import React, { useTransition } from 'react';
-import { useRouter, useSearchParams, usePathname } from 'next/navigation';
+import React, { useState, useEffect } from 'react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 export const PatientTabsContext = React.createContext({
@@ -18,20 +17,25 @@ export function PatientTabsWrapper({
   tabs = [],
   children,
 }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const pathname = usePathname();
-  const [, startTransition] = useTransition();
+  const [currentTab, setCurrentTab] = useState(defaultTab);
 
-  // Read current active tab from query parameter, with defaultTab fallback
-  const currentTab = searchParams.get('tab') || defaultTab;
+  useEffect(() => {
+    if (defaultTab) {
+      setCurrentTab(defaultTab);
+    }
+  }, [defaultTab]);
 
   const handleTabChange = (val) => {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set('tab', val);
-    startTransition(() => {
-      router.replace(`${pathname}?${params.toString()}`, { scroll: false });
-    });
+    setCurrentTab(val);
+    if (typeof window !== 'undefined') {
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', val);
+        window.history.replaceState(null, '', url.toString());
+      } catch (err) {
+        console.warn('[PatientTabsWrapper] URL update fallback:', err);
+      }
+    }
   };
 
   return (
