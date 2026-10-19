@@ -31,14 +31,13 @@ import { canAccessClinicalRecords } from '@/lib/rbac';
 
 export default async function PatientDetailPage({ params, searchParams }) {
   // Enforce server-side clinical role verification (Finding 4)
-  await requireStaffSession(canAccessClinicalRecords);
+  const { user, supabase } = await requireStaffSession(canAccessClinicalRecords);
 
   const resolvedParams = await params;
   const resolvedSearchParams = await searchParams;
   const id = resolvedParams.id;
   const selectedEpisodeId = resolvedSearchParams?.episode;
   const defaultTab = resolvedSearchParams?.tab || 'profile';
-  const supabase = await createClient();
 
   const [
     { data: patient },
@@ -47,19 +46,17 @@ export default async function PatientDetailPage({ params, searchParams }) {
     { data: visitLogs },
     { data: consultationMessages },
     { data: attachments },
-    { data: { user: staffUser } },
     { data: maternalEpisodes },
     { data: staffUsersList },
     { data: prenatalLabResults },
     { data: postpartumRecords }
   ] = await Promise.all([
-    supabase.from('patients').select('*').eq('id', id).single(),
+    supabase.from('patients').select('*').eq('id', id).maybeSingle(),
     supabase.from('birth_plans').select('*').eq('patient_id', id).maybeSingle(),
     supabase.from('prenatal_records').select('*').eq('patient_id', id).maybeSingle(),
     supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
     supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
     supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
-    supabase.auth.getUser(),
     supabase.from('maternal_episodes').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
     supabase.from('users').select('id, email, role'),
     supabase.from('prenatal_lab_results').select('*').eq('patient_id', id).order('test_date', { ascending: false }),
@@ -79,7 +76,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
     (attachments || []).map(async (file) => {
       const storagePath = file.file_path || file.file_url;
       try {
-        if (storagePath && !storagePath.startsWith('http://') && !storagePath.startsWith('https://')) {
+        if (typeof storagePath === 'string' && !storagePath.startsWith('http://') && !storagePath.startsWith('https://')) {
           const { data: signedData } = await supabase.storage
             .from('patient-records')
             .createSignedUrl(storagePath, 3600);
@@ -87,7 +84,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
             ...file,
             file_url: signedData?.signedUrl || file.file_url
           };
-        } else if (storagePath && storagePath.includes('/patient-records/')) {
+        } else if (typeof storagePath === 'string' && storagePath.includes('/patient-records/')) {
           const relativePath = storagePath.split('/patient-records/')[1];
           if (relativePath) {
             const { data: signedData } = await supabase.storage

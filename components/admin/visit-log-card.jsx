@@ -155,11 +155,15 @@ export function VisitLogCard({ log, patientId, staffName }) {
       </div>
 
       {/* Render high risk reasons if flagged */}
-      {log.is_high_risk_alert && log.high_risk_reasons && log.high_risk_reasons.length > 0 && (
+      {log.is_high_risk_alert && (
+        Array.isArray(log.high_risk_reasons)
+          ? log.high_risk_reasons
+          : (typeof log.high_risk_reasons === 'string' && log.high_risk_reasons.trim() ? [log.high_risk_reasons] : [])
+      ).length > 0 && (
         <div className="p-2.5 rounded-xl bg-red-50 border border-red-200/80 text-xs text-red-900 space-y-1">
           <p className="font-bold text-[10px] uppercase tracking-wider text-red-700">Triggered Maternal Safety Thresholds:</p>
           <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-            {log.high_risk_reasons.map((r, i) => (
+            {(Array.isArray(log.high_risk_reasons) ? log.high_risk_reasons : [log.high_risk_reasons]).map((r, i) => (
               <li key={i} className="font-medium">{r}</li>
             ))}
           </ul>
@@ -222,7 +226,7 @@ export function VisitLogCard({ log, patientId, staffName }) {
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           <span>Recorded by:</span>
           <span className="font-bold text-gray-700">
-            {staffName || (log.attending_staff_id ? `Staff (${log.attending_staff_id.split('-')[0]})` : 'Clinic Staff')}
+            {staffName || (typeof log.attending_staff_id === 'string' && log.attending_staff_id ? `Staff (${log.attending_staff_id.split('-')[0]})` : 'Clinic Staff')}
           </span>
         </div>
       </div>

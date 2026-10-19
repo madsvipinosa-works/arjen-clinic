@@ -4,17 +4,18 @@ import React from 'react';
 import { ShieldCheck, CheckCircle2, AlertTriangle, ChevronRight, FileCheck2 } from 'lucide-react';
 import { togglePhilHealthOverride } from '@/app/actions';
 
-export function PhilHealthMCPCard({ patientId, activeEpisode, visitLogs }) {
+export function PhilHealthMCPCard({ patientId, activeEpisode, visitLogs = [] }) {
   if (!activeEpisode) return null;
 
   const overrideActive = activeEpisode.philhealth_mcp_override;
+  const safeVisits = Array.isArray(visitLogs) ? visitLogs : [];
 
   // Filter visit logs to only those belonging to the active maternal episode
-  const activeVisits = visitLogs.filter(v => v.maternal_episode_id === activeEpisode.id);
+  const activeVisits = safeVisits.filter(v => v?.maternal_episode_id === activeEpisode.id);
 
-  const firstTriVisits = activeVisits.filter(v => v.aog_weeks < 14);
-  const secondTriVisits = activeVisits.filter(v => v.aog_weeks >= 14 && v.aog_weeks <= 27);
-  const thirdTriVisits = activeVisits.filter(v => v.aog_weeks >= 28);
+  const firstTriVisits = activeVisits.filter(v => typeof v?.aog_weeks === 'number' && v.aog_weeks < 14);
+  const secondTriVisits = activeVisits.filter(v => typeof v?.aog_weeks === 'number' && v.aog_weeks >= 14 && v.aog_weeks <= 27);
+  const thirdTriVisits = activeVisits.filter(v => typeof v?.aog_weeks === 'number' && v.aog_weeks >= 28);
 
   const firstTriCount = firstTriVisits.length;
   const secondTriCount = secondTriVisits.length;
