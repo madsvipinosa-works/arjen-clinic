@@ -138,7 +138,7 @@ export function ClinicalOverviewBento({
     if (isNaN(systolic) || isNaN(diastolic)) return null;
 
     // Cross-reference with latest urine protein for Pre-eclampsia Triad
-    const urineProtein = (latestLabResult?.urinalysis_protein || '').trim().toLowerCase();
+    const urineProtein = String(latestLabResult?.urinalysis_protein || '').trim().toLowerCase();
     const hasProteinuria = ['1+', '2+', '3+', '4+'].includes(urineProtein);
     const isPreeclampsiaTriad = (systolic >= 140 || diastolic >= 90) && hasProteinuria;
 

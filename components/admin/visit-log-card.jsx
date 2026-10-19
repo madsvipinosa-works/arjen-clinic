@@ -123,7 +123,9 @@ export function VisitLogCard({ log, patientId, staffName }) {
       <div className="flex items-start justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">
-            {new Date(log.visit_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+            {log?.visit_date && !isNaN(new Date(log.visit_date).getTime())
+              ? new Date(log.visit_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+              : 'Routine Visit'}
           </span>
           {log.trimester && (
             <span className="bg-purple-50 text-purple-700 text-[10px] font-bold px-2.5 py-0.5 rounded-full border border-purple-100">
@@ -136,7 +138,7 @@ export function VisitLogCard({ log, patientId, staffName }) {
               High-Risk Alert
             </span>
           )}
-          {log.next_visit && (
+          {log.next_visit && !isNaN(new Date(log.next_visit).getTime()) && (
             <span className="bg-amber-50 text-amber-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-amber-100">
               Next: {new Date(log.next_visit).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>

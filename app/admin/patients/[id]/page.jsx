@@ -73,7 +73,7 @@ export default async function PatientDetailPage({ params, searchParams }) {
 
   // Generate short-lived signed URLs for private patient records (Finding 1)
   const attachmentsWithSignedUrls = await Promise.all(
-    (attachments || []).map(async (file) => {
+    (attachments || []).filter(Boolean).map(async (file) => {
       const storagePath = file.file_path || file.file_url;
       try {
         if (typeof storagePath === 'string' && !storagePath.startsWith('http://') && !storagePath.startsWith('https://')) {
@@ -103,16 +103,21 @@ export default async function PatientDetailPage({ params, searchParams }) {
     })
   );
 
-  // Create staff name map
+  // Create staff name map with null-safe handling
   const staffMap = {};
-  staffUsersList?.forEach(u => {
-    staffMap[u.id] = u.email ? u.email.split('@')[0] : `Staff (${u.id.slice(0, 6)})`;
+  (staffUsersList || []).forEach(u => {
+    if (!u || !u.id) return;
+    const shortId = typeof u.id === 'string' ? u.id.slice(0, 6) : String(u.id);
+    staffMap[u.id] = u.email ? u.email.split('@')[0] : `Staff (${shortId})`;
   });
 
-  const activeEpisode = (selectedEpisodeId ? maternalEpisodes?.find(e => e.id === selectedEpisodeId) : null)
-    || maternalEpisodes?.find(e => e.status === 'Active')
-    || maternalEpisodes?.[0]
+  const safeEpisodes = Array.isArray(maternalEpisodes) ? maternalEpisodes : [];
+  const activeEpisode = (selectedEpisodeId ? safeEpisodes.find(e => e?.id === selectedEpisodeId) : null)
+    || safeEpisodes.find(e => e?.status === 'Active')
+    || safeEpisodes[0]
     || null;
+
+  const patientShortId = typeof patient?.id === 'string' ? patient.id.slice(0, 8).toUpperCase() : String(patient?.id || '').slice(0, 8).toUpperCase();
 
   return (
     <div className="w-full max-w-7xl mx-auto space-y-6">
@@ -122,11 +127,11 @@ export default async function PatientDetailPage({ params, searchParams }) {
           <BreadcrumbTrail
             items={[
               { label: 'Patient Directory', href: '/admin/patients' },
-              { label: patient.full_name || 'Patient Chart', isCurrent: true },
+              { label: patient?.full_name || 'Patient Chart', isCurrent: true },
             ]}
           />
           <span className="font-mono text-xs font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md border border-gray-200">
-            #{patient.id.slice(0, 8).toUpperCase()}
+            #{patientShortId}
           </span>
           {patient.is_high_risk ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200">

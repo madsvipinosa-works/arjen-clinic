@@ -79,13 +79,15 @@ export function PatientClinicalHeader({
   );
 
   // Patient Initials for Avatar
-  const initials = patient?.full_name
+  const initials = typeof patient?.full_name === 'string' && patient.full_name.trim()
     ? patient.full_name
-        .split(' ')
+        .trim()
+        .split(/\s+/)
+        .filter(Boolean)
         .map((n) => n[0])
         .slice(0, 2)
         .join('')
-        .toUpperCase()
+        .toUpperCase() || 'PT'
     : 'PT';
 
   // Episode Change Handler
@@ -226,7 +228,7 @@ export function PatientClinicalHeader({
                 </div>
 
                 <span className="flex items-center gap-1">
-                  ID: <span className="font-mono text-gray-700 font-bold bg-gray-100 px-1.5 py-0.5 rounded text-[11px]">{id.split('-')[0]}</span>
+                  ID: <span className="font-mono text-gray-700 font-bold bg-gray-100 px-1.5 py-0.5 rounded text-[11px]">{typeof id === 'string' ? id.split('-')[0] : String(id || '')}</span>
                 </span>
                 {patient?.age && (
                   <>
@@ -479,10 +481,20 @@ export function PatientClinicalHeader({
             ) : patient?.risk_cleared_at ? (
               <div 
                 className="bg-emerald-50 border border-emerald-200 text-emerald-800 font-bold text-xs px-3.5 py-1.5 rounded-full flex items-center gap-1.5 shadow-2xs" 
-                title={`Cleared on ${new Date(patient.risk_cleared_at).toLocaleDateString()} by ${patient.risk_cleared_by || 'Clinician'}: ${patient.risk_cleared_notes || patient.risk_clearance_reason || 'Normative vitals'}`}
+                title={`Cleared on ${!isNaN(new Date(patient.risk_cleared_at).getTime()) ? new Date(patient.risk_cleared_at).toLocaleDateString() : 'recent date'} by ${patient.risk_cleared_by || 'Clinician'}: ${typeof (patient.risk_cleared_notes || patient.risk_clearance_reason) === 'string' ? (patient.risk_cleared_notes || patient.risk_clearance_reason) : 'Normative vitals'}`}
               >
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-600 flex-shrink-0" />
-                <span>Risk Flag Cleared: {patient.risk_cleared_notes || patient.risk_clearance_reason ? ((patient.risk_cleared_notes || patient.risk_clearance_reason).length > 30 ? `${(patient.risk_cleared_notes || patient.risk_clearance_reason).slice(0, 30)}...` : (patient.risk_cleared_notes || patient.risk_clearance_reason)) : 'Clinically Stable'}</span>
+                <span>
+                  Risk Flag Cleared: {
+                    (() => {
+                      const note = typeof (patient.risk_cleared_notes || patient.risk_clearance_reason) === 'string'
+                        ? (patient.risk_cleared_notes || patient.risk_clearance_reason)
+                        : '';
+                      if (!note) return 'Clinically Stable';
+                      return note.length > 30 ? `${note.slice(0, 30)}...` : note;
+                    })()
+                  }
+                </span>
               </div>
             ) : null}
 

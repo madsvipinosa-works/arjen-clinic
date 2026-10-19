@@ -44,14 +44,21 @@ export default function PatientDetailError({ error, reset }) {
             </p>
           </div>
 
-          {/* Error detail (dev-mode hint) */}
-          {process.env.NODE_ENV !== 'production' && error?.message && (
-            <div className="bg-red-50 border border-red-200/80 rounded-2xl px-4 py-3 text-left">
-              <p className="text-[10px] font-black text-red-600 uppercase tracking-widest mb-1">
-                Error Detail (dev only)
-              </p>
-              <p className="text-xs font-mono text-red-700 break-all">
-                {error.message}
+          {/* Error detail (now visible for production diagnostics) */}
+          {(error?.message || error?.digest) && (
+            <div className="bg-red-50/90 border border-red-200/80 rounded-2xl p-4 text-left space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black text-red-600 uppercase tracking-widest">
+                  Diagnostic Error Signature
+                </p>
+                {error?.digest && (
+                  <span className="font-mono text-[10px] text-red-500 bg-red-100/70 px-2 py-0.5 rounded-md">
+                    Digest: {error.digest}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs font-mono text-red-700 break-all leading-relaxed">
+                {error?.message || 'Server-side rendering exception caught.'}
               </p>
             </div>
           )}
