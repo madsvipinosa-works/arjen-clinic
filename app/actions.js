@@ -25,14 +25,16 @@ import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
 
 async function getAuthenticatedUser() {
   const supabaseServer = await createClient();
-  const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
+  const authData = await supabaseServer.auth.getUser();
+  const user = authData?.data?.user;
+  const authError = authData?.error;
   if (authError || !user) return { user: null, role: null, supabaseServer };
 
   const { data: userData } = await supabaseServer
     .from("users")
     .select("role")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   const role = userData?.role || user?.app_metadata?.role || user?.user_metadata?.role;
   return { user, role, supabaseServer };
@@ -60,7 +62,9 @@ async function verifyAdmin() {
 
 async function verifyAuth() {
   const supabaseServer = await createClient();
-  const { data: { user }, error: authError } = await supabaseServer.auth.getUser();
+  const authData = await supabaseServer.auth.getUser();
+  const authError = authData?.error;
+  const user = authData?.data?.user;
   return !authError && !!user;
 }
 
@@ -1102,12 +1106,13 @@ export async function createWalkInAppointment(formData) {
 
   // 4. If reception entered quick vitals, log in visit_logs
   if (hasVitals) {
-    const { data: { user } } = await supabaseServer.auth.getUser();
+    const walkinAuth = await supabaseServer.auth.getUser();
+    const walkinUser = walkinAuth?.data?.user;
     await supabaseServer
       .from('visit_logs')
       .insert({
         patient_id: patientId,
-        attending_staff_id: attendingStaffId || user?.id,
+        attending_staff_id: attendingStaffId || walkinUser?.id,
         bp: bp || null,
         weight: weight || null,
         temp: temp || null,
@@ -1150,11 +1155,12 @@ export async function addVisitLog(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
+  const visitAuthResult = await supabaseServer.auth.getUser();
+  const visitUser = visitAuthResult?.data?.user;
 
   const patient_id = formData.get('patient_id');
   const maternal_episode_id = formData.get('maternal_episode_id') || null;
-  const attending_staff_id = user?.id;
+  const attending_staff_id = visitUser?.id;
   const bp = formData.get('bp');
   const weight = formData.get('weight');
   const doctor_notes = formData.get('doctor_notes');
@@ -1319,7 +1325,8 @@ export async function addPrenatalLabResult(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
+  const labAuthResult = await supabaseServer.auth.getUser();
+  const user = labAuthResult?.data?.user;
 
   const patient_id = formData.get('patient_id');
   const maternal_episode_id = formData.get('maternal_episode_id') || null;
@@ -2022,7 +2029,8 @@ export async function sendConsultationMessage(formData) {
   if (!(await verifyAuth())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const { data: { user } } = await supabaseServer.auth.getUser();
+  const consultAuthResult = await supabaseServer.auth.getUser();
+  const user = consultAuthResult?.data?.user;
   if (!user) return { success: false, error: 'User session required' };
 
   const patient_id = formData.get('patient_id');
@@ -2360,7 +2368,9 @@ export async function updateAdminCredentials(formData) {
   if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
   const supabaseServer = await createClient();
-  const { data: { user }, error: userErr } = await supabaseServer.auth.getUser();
+  const credAuthResult = await supabaseServer.auth.getUser();
+  const user = credAuthResult?.data?.user;
+  const userErr = credAuthResult?.error;
   if (userErr || !user) {
     return { success: false, error: 'Authenticated admin session not found.' };
   }
@@ -3099,12 +3109,13 @@ export async function togglePhilHealthOverride(formData) {
   }
 
   // DPA Audit Trail
-  const { data: user } = await supabaseServer.auth.getUser();
+  const mcpAuthResult = await supabaseServer.auth.getUser();
+  const mcpUser = mcpAuthResult?.data?.user;
   await logAuditEvent({
     action: 'TOGGLE_MCP_OVERRIDE',
     entityType: 'maternal_episodes',
     entityId: maternal_episode_id,
-    details: { patient_id, override_value, user_id: user?.user?.id }
+    details: { patient_id, override_value, user_id: mcpUser?.id }
   });
 
   revalidatePath(`/admin/patients/${patient_id}`);
