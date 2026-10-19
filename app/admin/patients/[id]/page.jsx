@@ -30,46 +30,71 @@ import { requireStaffSession } from '@/lib/rbac-server';
 import { canAccessClinicalRecords } from '@/lib/rbac';
 
 export default async function PatientDetailPage({ params, searchParams }) {
-  // Enforce server-side clinical role verification (Finding 4)
-  const { user, supabase } = await requireStaffSession(canAccessClinicalRecords);
+  try {
+    // Enforce server-side clinical role verification (Finding 4)
+    const { user, supabase } = await requireStaffSession(canAccessClinicalRecords);
 
-  const resolvedParams = await params;
-  const resolvedSearchParams = await searchParams;
-  const id = resolvedParams.id;
-  const selectedEpisodeId = resolvedSearchParams?.episode;
-  const defaultTab = resolvedSearchParams?.tab || 'profile';
+    const resolvedParams = await params;
+    const resolvedSearchParams = await searchParams;
+    const id = resolvedParams?.id;
+    const selectedEpisodeId = resolvedSearchParams?.episode;
+    const defaultTab = resolvedSearchParams?.tab || 'profile';
 
-  const [
-    { data: patient },
-    { data: birthPlan },
-    { data: prenatalRecord },
-    { data: visitLogs },
-    { data: consultationMessages },
-    { data: attachments },
-    { data: maternalEpisodes },
-    { data: staffUsersList },
-    { data: prenatalLabResults },
-    { data: postpartumRecords }
-  ] = await Promise.all([
-    supabase.from('patients').select('*').eq('id', id).maybeSingle(),
-    supabase.from('birth_plans').select('*').eq('patient_id', id).maybeSingle(),
-    supabase.from('prenatal_records').select('*').eq('patient_id', id).maybeSingle(),
-    supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
-    supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
-    supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
-    supabase.from('maternal_episodes').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
-    supabase.from('users').select('id, email, role'),
-    supabase.from('prenatal_lab_results').select('*').eq('patient_id', id).order('test_date', { ascending: false }),
-    supabase.from('postpartum_records').select('*').eq('patient_id', id).order('created_at', { ascending: false })
-  ]);
+    if (!id) {
+      return (
+        <div className="flex h-64 items-center justify-center text-gray-400">
+          Missing or invalid patient ID parameter.
+        </div>
+      );
+    }
 
-  if (!patient) {
-    return (
-      <div className="flex h-64 items-center justify-center text-gray-400">
-        Record not found or invalid patient ID.
-      </div>
-    );
-  }
+    const [
+      patientRes,
+      birthPlanRes,
+      prenatalRecordRes,
+      visitLogsRes,
+      consultationMessagesRes,
+      attachmentsRes,
+      maternalEpisodesRes,
+      staffUsersListRes,
+      prenatalLabResultsRes,
+      postpartumRecordsRes
+    ] = await Promise.all([
+      supabase.from('patients').select('*').eq('id', id).maybeSingle(),
+      supabase.from('birth_plans').select('*').eq('patient_id', id).maybeSingle(),
+      supabase.from('prenatal_records').select('*').eq('patient_id', id).maybeSingle(),
+      supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
+      supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
+      supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
+      supabase.from('maternal_episodes').select('*').eq('patient_id', id).order('created_at', { ascending: false }),
+      supabase.from('users').select('id, email, role'),
+      supabase.from('prenatal_lab_results').select('*').eq('patient_id', id).order('test_date', { ascending: false }),
+      supabase.from('postpartum_records').select('*').eq('patient_id', id).order('created_at', { ascending: false })
+    ]);
+
+    if (patientRes?.error) console.error('[PatientDetailPage] patient query error:', patientRes.error.message);
+    if (birthPlanRes?.error) console.error('[PatientDetailPage] birthPlan query error:', birthPlanRes.error.message);
+    if (prenatalRecordRes?.error) console.error('[PatientDetailPage] prenatalRecord query error:', prenatalRecordRes.error.message);
+    if (visitLogsRes?.error) console.error('[PatientDetailPage] visitLogs query error:', visitLogsRes.error.message);
+
+    const patient = patientRes?.data || null;
+    const birthPlan = birthPlanRes?.data || null;
+    const prenatalRecord = prenatalRecordRes?.data || null;
+    const visitLogs = Array.isArray(visitLogsRes?.data) ? visitLogsRes.data : [];
+    const consultationMessages = Array.isArray(consultationMessagesRes?.data) ? consultationMessagesRes.data : [];
+    const attachments = Array.isArray(attachmentsRes?.data) ? attachmentsRes.data : [];
+    const maternalEpisodes = Array.isArray(maternalEpisodesRes?.data) ? maternalEpisodesRes.data : [];
+    const staffUsersList = Array.isArray(staffUsersListRes?.data) ? staffUsersListRes.data : [];
+    const prenatalLabResults = Array.isArray(prenatalLabResultsRes?.data) ? prenatalLabResultsRes.data : [];
+    const postpartumRecords = Array.isArray(postpartumRecordsRes?.data) ? postpartumRecordsRes.data : [];
+
+    if (!patient) {
+      return (
+        <div className="flex h-64 items-center justify-center text-gray-400">
+          Record not found or invalid patient ID.
+        </div>
+      );
+    }
 
   // Generate short-lived signed URLs for private patient records (Finding 1)
   const attachmentsWithSignedUrls = await Promise.all(
@@ -462,4 +487,50 @@ export default async function PatientDetailPage({ params, searchParams }) {
       </PatientTabsWrapper>
     </div>
   );
+} catch (err) {
+  // If next/navigation thrown redirect, re-throw it so Next handles it properly
+  if (err?.digest?.startsWith('NEXT_REDIRECT') || err?.message === 'NEXT_REDIRECT') {
+    throw err;
+  }
+
+  console.error('[PatientDetailPage SERVER ERROR]:', err);
+
+  return (
+    <div className="w-full max-w-4xl mx-auto my-12 p-8 bg-red-50/90 border border-red-200/90 rounded-3xl space-y-5 shadow-sm">
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 rounded-2xl bg-red-500 text-white flex items-center justify-center font-bold shadow-md shadow-red-500/20">
+          ⚠️
+        </div>
+        <div>
+          <h2 className="text-xl font-black text-red-900 tracking-tight">Clinical Chart Render Diagnostics</h2>
+          <p className="text-xs text-red-700">A server-side rendering error was caught while compiling this patient&apos;s chart.</p>
+        </div>
+      </div>
+
+      <div className="bg-white p-5 rounded-2xl border border-red-200 space-y-2">
+        <p className="text-xs font-bold text-red-600 uppercase tracking-widest">Error Name &amp; Message:</p>
+        <p className="text-sm font-mono font-bold text-gray-900 break-all">
+          {err?.name || 'Error'}: {err?.message || 'Unknown server exception'}
+        </p>
+        {err?.stack && (
+          <div className="mt-3 pt-3 border-t border-gray-100">
+            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-1">Server Stack Trace:</p>
+            <pre className="text-[11px] font-mono text-gray-700 overflow-x-auto max-h-48 p-2 bg-gray-50 rounded-xl leading-relaxed">
+              {err.stack}
+            </pre>
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center gap-3 pt-2">
+        <a
+          href="/admin/patients"
+          className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-red-600 to-rose-600 hover:from-red-700 hover:to-rose-700 text-white font-bold text-xs shadow-sm shadow-red-500/20 transition-all"
+        >
+          ← Return to Patient Directory
+        </a>
+      </div>
+    </div>
+  );
+}
 }
