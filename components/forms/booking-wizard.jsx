@@ -85,9 +85,9 @@ function BookingWizardInner({ formAction, scheduleContext = {} }) {
   const activeServices = useMemo(() => {
     if (services && services.length > 0) {
       return services.map((s, idx) => ({
-        id: s.id || s.title.toLowerCase().replace(/[^a-z0-9]/g, "_"),
-        title: s.title,
-        description: s.description,
+        id: s.id || (s.title || s.label || `svc_${idx}`).toLowerCase().replace(/[^a-z0-9]/g, "_"),
+        title: s.title || s.label || s.id || "Clinic Service",
+        description: s.description || s.desc || "Routine maternal and child health service.",
         price: s.price,
         Icon: [Heart, Baby, Users, Stethoscope, Sparkles][idx % 5],
       }));
@@ -99,9 +99,11 @@ function BookingWizardInner({ formAction, scheduleContext = {} }) {
   const initialMatchedService = useMemo(() => {
     if (!serviceQueryParam) return "";
     const clean = serviceQueryParam.toLowerCase();
-    const found = activeServices.find((s) => 
-      s.id.toLowerCase() === clean || s.title.toLowerCase().includes(clean)
-    );
+    const found = activeServices.find((s) => {
+      const sId = (s.id || "").toLowerCase();
+      const sTitle = (s.title || "").toLowerCase();
+      return sId === clean || sTitle.includes(clean) || clean.includes(sId);
+    });
     return found ? found.id : "";
   }, [serviceQueryParam, activeServices]);
 

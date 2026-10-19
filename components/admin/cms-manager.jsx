@@ -52,6 +52,10 @@ export function CMSManager({ initialSettings }) {
   const [seoTitle, setSeoTitle] = useState(initialSettings?.seo_meta_title || "");
   const [seoDescription, setSeoDescription] = useState(initialSettings?.seo_meta_description || "");
 
+  // Hero Image Instant Previews
+  const [leftHeroPreview, setLeftHeroPreview] = useState(null);
+  const [rightHeroPreview, setRightHeroPreview] = useState(null);
+
   // Operating Hours Preset States
   const [hoursWeekdays, setHoursWeekdays] = useState(initialSettings?.operating_hours_weekdays || "");
   const [hoursSaturday, setHoursSaturday] = useState(initialSettings?.operating_hours_saturday || "");
@@ -76,6 +80,15 @@ export function CMSManager({ initialSettings }) {
         if (result?.success === false) {
           showToast("error", "Failed to Save", result?.error || "An error occurred while saving.");
         } else {
+          // Immediately sync updated image or settings in local state
+          if (result?.targetColumn) {
+            setSettings((prev) => ({
+              ...prev,
+              [result.targetColumn]: result.removed ? null : (result.publicUrl ?? prev[result.targetColumn]),
+            }));
+            if (result.targetColumn === "hero_image_url") setLeftHeroPreview(null);
+            if (result.targetColumn === "hero_image_right_url") setRightHeroPreview(null);
+          }
           setSavedKey(formKey);
           showToast("success", "Saved Successfully!", successMsg || "Your changes have been updated and are live.");
           setTimeout(() => setSavedKey(null), 3000);
@@ -345,10 +358,10 @@ export function CMSManager({ initialSettings }) {
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
                 <div className="overflow-hidden rounded-[100px] bg-rose-50/50 border border-rose-100 aspect-[3/4] max-w-[220px] mx-auto flex items-center justify-center relative shadow-md">
-                  {settings?.hero_image_url ? (
+                  {(leftHeroPreview || settings?.hero_image_url) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={settings.hero_image_url}
+                      src={leftHeroPreview || settings.hero_image_url}
                       alt="Left hero image"
                       className="w-full h-full object-cover"
                     />
@@ -379,6 +392,12 @@ export function CMSManager({ initialSettings }) {
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/svg+xml"
                       required
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setLeftHeroPreview(URL.createObjectURL(file));
+                        }
+                      }}
                       className="h-10 rounded-xl border-gray-200 file:mr-3 file:rounded-lg file:border-0 file:bg-rose-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-rose-600 hover:file:bg-rose-100"
                     />
                   </div>
@@ -481,10 +500,10 @@ export function CMSManager({ initialSettings }) {
               </CardHeader>
               <CardContent className="pt-6 space-y-6">
                 <div className="overflow-hidden rounded-full bg-rose-50/50 border border-rose-100 aspect-square max-w-[220px] mx-auto flex items-center justify-center relative shadow-md">
-                  {settings?.hero_image_right_url ? (
+                  {(rightHeroPreview || settings?.hero_image_right_url) ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img
-                      src={settings.hero_image_right_url}
+                      src={rightHeroPreview || settings.hero_image_right_url}
                       alt="Right hero image"
                       className="w-full h-full object-cover"
                     />
@@ -515,6 +534,12 @@ export function CMSManager({ initialSettings }) {
                       type="file"
                       accept="image/jpeg,image/png,image/webp,image/svg+xml"
                       required
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          setRightHeroPreview(URL.createObjectURL(file));
+                        }
+                      }}
                       className="h-10 rounded-xl border-gray-200 file:mr-3 file:rounded-lg file:border-0 file:bg-rose-50 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-rose-600 hover:file:bg-rose-100"
                     />
                   </div>

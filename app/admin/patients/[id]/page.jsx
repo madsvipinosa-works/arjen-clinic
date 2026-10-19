@@ -54,8 +54,8 @@ export default async function PatientDetailPage({ params, searchParams }) {
     { data: postpartumRecords }
   ] = await Promise.all([
     supabase.from('patients').select('*').eq('id', id).single(),
-    supabase.from('birth_plans').select('*').eq('patient_id', id).single(),
-    supabase.from('prenatal_records').select('*').eq('patient_id', id).single(),
+    supabase.from('birth_plans').select('*').eq('patient_id', id).maybeSingle(),
+    supabase.from('prenatal_records').select('*').eq('patient_id', id).maybeSingle(),
     supabase.from('visit_logs').select('*').eq('patient_id', id).order('visit_date', { ascending: false }),
     supabase.from('consultation_messages').select('*').eq('patient_id', id).order('created_at', { ascending: true }),
     supabase.from('patient_attachments').select('*').eq('patient_id', id).order('created_at', { ascending: false }),

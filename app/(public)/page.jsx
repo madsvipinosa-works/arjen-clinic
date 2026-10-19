@@ -1,6 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { redirect } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import AnimatedTextRoller from "@/components/ui/animated-text-04";
@@ -63,7 +64,12 @@ const TRUST_POINTS = [
 // PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
-export default async function LandingPage() {
+export default async function LandingPage({ searchParams }) {
+  const params = await searchParams;
+  if (params?.code) {
+    redirect(`/auth/callback?code=${encodeURIComponent(params.code)}`);
+  }
+
   const supabase = await createClient();
   const { data: settings } = await supabase
     .from('clinic_settings')

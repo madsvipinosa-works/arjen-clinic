@@ -87,8 +87,25 @@ export async function GET(request) {
       .limit(1)
       .maybeSingle();
 
-    const recipientEmail = settings?.footer_email || adminUser?.email || adminCred?.email || process.env.EMAIL_USER;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://arjenclinic.com';
+    const isPlaceholderEmail = (email) => {
+      if (!email || typeof email !== 'string') return true;
+      const lower = email.toLowerCase().trim();
+      return (
+        lower.endsWith('@example.com') ||
+        lower.endsWith('@arjenclinic.com') ||
+        lower.includes('placeholder') ||
+        lower === 'hello@arjenclinic.com'
+      );
+    };
+
+    const validFooterEmail = !isPlaceholderEmail(settings?.footer_email) ? settings.footer_email : null;
+    const validAdminUserEmail = !isPlaceholderEmail(adminUser?.email) ? adminUser.email : null;
+    const validAdminCredEmail = !isPlaceholderEmail(adminCred?.email) ? adminCred.email : null;
+
+    const recipientEmail = validFooterEmail || process.env.EMAIL_USER || validAdminUserEmail || validAdminCredEmail;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 
+      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://arjen-clinic.vercel.app'));
     const clinicName = settings?.clinic_name || "AR-JEN Maternity Clinic";
 
     let emailSent = false;

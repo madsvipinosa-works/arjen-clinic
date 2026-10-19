@@ -17,6 +17,14 @@ export function sanitizeSupabaseCookies(cookiesList) {
     }
     if (typeof c.value !== "string") continue;
     const val = c.value.trim();
+    if (!val || val === "undefined" || val === "null") continue;
+
+    // Chunks (e.g. sb-...-auth-token.0, sb-...-auth-token.1) MUST be preserved intact
+    // so @supabase/ssr's combineChunks can concatenate them before JSON parsing.
+    if (/\.\d+$/.test(c.name)) {
+      result.push(c);
+      continue;
+    }
 
     // 1. If prefixed with base64-, ensure base64 payload parses to valid JSON
     if (val.startsWith("base64-")) {
@@ -43,11 +51,14 @@ export function sanitizeSupabaseCookies(cookiesList) {
     }
 
     // 3. If raw JSON string
-    try {
-      JSON.parse(val);
-      result.push(c);
-    } catch {
-      // Discard corrupted cookie
+    if (val.startsWith("{") || val.startsWith("[")) {
+      try {
+        JSON.parse(val);
+        result.push(c);
+      } catch {
+        // Discard corrupted cookie
+      }
+      continue;
     }
   }
   return result;

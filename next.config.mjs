@@ -30,6 +30,11 @@ const nextConfig = {
       },
       {
         protocol: "https",
+        hostname: "jdpuheeirybeiytusgjm.supabase.co",
+        pathname: "/**",
+      },
+      {
+        protocol: "https",
         hostname: "*.supabase.co",
         pathname: "/**",
       },

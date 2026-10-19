@@ -2678,7 +2678,7 @@ export async function updateHeroImage(formData) {
     revalidatePath('/');
     revalidatePath('/admin/settings');
     revalidatePath('/admin/cms');
-    return { success: true };
+    return { success: true, position, targetColumn, publicUrl: null, removed: true };
   }
 
   // ── DIRECT URL ──────────────────────────────────────────────────────────────
@@ -2705,7 +2705,7 @@ export async function updateHeroImage(formData) {
     revalidatePath('/');
     revalidatePath('/admin/settings');
     revalidatePath('/admin/cms');
-    return { success: true };
+    return { success: true, position, targetColumn, publicUrl: cleanUrl };
   }
 
   // ── FILE UPLOAD ─────────────────────────────────────────────────────────────
@@ -2768,7 +2768,7 @@ export async function updateHeroImage(formData) {
   revalidatePath('/');
   revalidatePath('/admin/settings');
   revalidatePath('/admin/cms');
-  return { success: true, publicUrl };
+  return { success: true, position, targetColumn, publicUrl };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
