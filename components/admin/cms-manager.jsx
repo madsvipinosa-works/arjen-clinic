@@ -310,95 +310,50 @@ export function CMSManager({ initialSettings }) {
 
       {/* ── Tabs Navigation: Modern Glassmorphic Command Strip ── */}
       <Tabs defaultValue="hero" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto p-1.5 bg-slate-100/90 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-inner gap-1.5">
+        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto p-1.5 bg-slate-100/90 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-inner gap-1.5 items-center">
           {/* Tab 1: Hero & Visuals */}
           <TabsTrigger
             value="hero"
-            className="group relative flex flex-col sm:flex-row items-center sm:items-start lg:items-center gap-2 sm:gap-2.5 py-2.5 px-3 rounded-xl border border-transparent transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-gray-900 data-active:text-gray-900 data-[state=active]:border-rose-200/80 data-active:border-rose-200/80 data-[state=active]:shadow-md data-active:shadow-md data-[state=active]:shadow-gray-950/5 hover:bg-white/60 text-gray-600 cursor-pointer"
+            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-rose-600 data-active:text-rose-600 data-[state=active]:border-rose-100 data-active:border-rose-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-lg bg-rose-50 text-rose-600 flex items-center justify-center shrink-0 border border-rose-100/80 group-data-[state=active]:bg-rose-500 group-data-[state=active]:text-white group-data-[state=active]:border-rose-600 group-data-active:bg-rose-500 group-data-active:text-white transition-colors">
-              <ImageIcon className="w-4 h-4" />
-            </div>
-            <div className="text-left min-w-0">
-              <span className="block font-bold text-xs sm:text-sm tracking-tight truncate">
-                Hero &amp; Visuals
-              </span>
-              <span className="hidden xl:block text-[10px] text-gray-400 group-data-[state=active]:text-rose-600 group-data-active:text-rose-600 font-medium truncate">
-                Banners &amp; Copy
-              </span>
-            </div>
+            <ImageIcon className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
+            <span className="truncate">Hero &amp; Visuals</span>
           </TabsTrigger>
 
           {/* Tab 2: Services Catalog */}
           <TabsTrigger
             value="services"
-            className="group relative flex flex-col sm:flex-row items-center sm:items-start lg:items-center gap-2 sm:gap-2.5 py-2.5 px-3 rounded-xl border border-transparent transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-gray-900 data-active:text-gray-900 data-[state=active]:border-amber-200/80 data-active:border-amber-200/80 data-[state=active]:shadow-md data-active:shadow-md data-[state=active]:shadow-gray-950/5 hover:bg-white/60 text-gray-600 cursor-pointer"
+            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-amber-600 data-active:text-amber-600 data-[state=active]:border-amber-100 data-active:border-amber-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 border border-amber-100/80 group-data-[state=active]:bg-amber-500 group-data-[state=active]:text-white group-data-[state=active]:border-amber-600 group-data-active:bg-amber-500 group-data-active:text-white transition-colors">
-              <LayoutGrid className="w-4 h-4" />
-            </div>
-            <div className="text-left min-w-0">
-              <span className="block font-bold text-xs sm:text-sm tracking-tight truncate">
-                Services Catalog
-              </span>
-              <span className="hidden xl:block text-[10px] text-gray-400 group-data-[state=active]:text-amber-600 group-data-active:text-amber-600 font-medium truncate">
-                {settings?.services?.length ? `${settings.services.length} Procedures` : "Procedures"}
-              </span>
-            </div>
+            <LayoutGrid className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
+            <span className="truncate">Services Catalog</span>
           </TabsTrigger>
 
           {/* Tab 3: Logo & SEO */}
           <TabsTrigger
             value="general"
-            className="group relative flex flex-col sm:flex-row items-center sm:items-start lg:items-center gap-2 sm:gap-2.5 py-2.5 px-3 rounded-xl border border-transparent transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-gray-900 data-active:text-gray-900 data-[state=active]:border-sky-200/80 data-active:border-sky-200/80 data-[state=active]:shadow-md data-active:shadow-md data-[state=active]:shadow-gray-950/5 hover:bg-white/60 text-gray-600 cursor-pointer"
+            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-sky-600 data-active:text-sky-600 data-[state=active]:border-sky-100 data-active:border-sky-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-lg bg-sky-50 text-sky-600 flex items-center justify-center shrink-0 border border-sky-100/80 group-data-[state=active]:bg-sky-500 group-data-[state=active]:text-white group-data-[state=active]:border-sky-600 group-data-active:bg-sky-500 group-data-active:text-white transition-colors">
-              <Globe className="w-4 h-4" />
-            </div>
-            <div className="text-left min-w-0">
-              <span className="block font-bold text-xs sm:text-sm tracking-tight truncate">
-                Logo &amp; SEO
-              </span>
-              <span className="hidden xl:block text-[10px] text-gray-400 group-data-[state=active]:text-sky-600 group-data-active:text-sky-600 font-medium truncate">
-                Brand &amp; Search
-              </span>
-            </div>
+            <Globe className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
+            <span className="truncate">Logo &amp; SEO</span>
           </TabsTrigger>
 
           {/* Tab 4: About & Trust */}
           <TabsTrigger
             value="about"
-            className="group relative flex flex-col sm:flex-row items-center sm:items-start lg:items-center gap-2 sm:gap-2.5 py-2.5 px-3 rounded-xl border border-transparent transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-gray-900 data-active:text-gray-900 data-[state=active]:border-rose-200/80 data-active:border-rose-200/80 data-[state=active]:shadow-md data-active:shadow-md data-[state=active]:shadow-gray-950/5 hover:bg-white/60 text-gray-600 cursor-pointer"
+            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-rose-600 data-active:text-rose-600 data-[state=active]:border-rose-100 data-active:border-rose-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-lg bg-pink-50 text-pink-600 flex items-center justify-center shrink-0 border border-pink-100/80 group-data-[state=active]:bg-rose-500 group-data-[state=active]:text-white group-data-[state=active]:border-rose-600 group-data-active:bg-rose-500 group-data-active:text-white transition-colors">
-              <MessageSquare className="w-4 h-4" />
-            </div>
-            <div className="text-left min-w-0">
-              <span className="block font-bold text-xs sm:text-sm tracking-tight truncate">
-                About &amp; Trust
-              </span>
-              <span className="hidden xl:block text-[10px] text-gray-400 group-data-[state=active]:text-rose-600 group-data-active:text-rose-600 font-medium truncate">
-                Story &amp; Benefits
-              </span>
-            </div>
+            <MessageSquare className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
+            <span className="truncate">About &amp; Trust</span>
           </TabsTrigger>
 
           {/* Tab 5: Footer & Hours */}
           <TabsTrigger
             value="footer"
-            className="group relative flex flex-col sm:flex-row items-center sm:items-start lg:items-center gap-2 sm:gap-2.5 py-2.5 px-3 rounded-xl border border-transparent transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-gray-900 data-active:text-gray-900 data-[state=active]:border-purple-200/80 data-active:border-purple-200/80 data-[state=active]:shadow-md data-active:shadow-md data-[state=active]:shadow-gray-950/5 hover:bg-white/60 text-gray-600 cursor-pointer"
+            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-purple-600 data-active:text-purple-600 data-[state=active]:border-purple-100 data-active:border-purple-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
           >
-            <div className="w-8 h-8 rounded-lg bg-purple-50 text-purple-600 flex items-center justify-center shrink-0 border border-purple-100/80 group-data-[state=active]:bg-purple-500 group-data-[state=active]:text-white group-data-[state=active]:border-purple-600 group-data-active:bg-purple-500 group-data-active:text-white transition-colors">
-              <Phone className="w-4 h-4" />
-            </div>
-            <div className="text-left min-w-0">
-              <span className="block font-bold text-xs sm:text-sm tracking-tight truncate">
-                Footer &amp; Hours
-              </span>
-              <span className="hidden xl:block text-[10px] text-gray-400 group-data-[state=active]:text-purple-600 group-data-active:text-purple-600 font-medium truncate">
-                Hours &amp; Contacts
-              </span>
-            </div>
+            <Phone className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
+            <span className="truncate">Footer &amp; Hours</span>
           </TabsTrigger>
         </TabsList>
 
