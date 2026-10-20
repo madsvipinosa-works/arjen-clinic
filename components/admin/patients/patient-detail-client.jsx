@@ -581,7 +581,9 @@ export function PatientDetailClient({
                                 </p>
                                 <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
                                   <span className="text-[10px] font-bold text-gray-400">
-                                    {new Date(file.created_at).toLocaleDateString()}
+                                    {file?.created_at && !isNaN(new Date(file.created_at).getTime())
+                                      ? new Date(file.created_at).toLocaleDateString('en-PH')
+                                      : 'Recent'}
                                   </span>
                                   <div className="flex items-center gap-1">
                                     <a

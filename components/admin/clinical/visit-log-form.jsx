@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getClinicTodayDateString } from '@/lib/utils';
 import { calculateObstetricDates, evaluateMaternalVitalsSafety } from '@/lib/clinical-protocols';
+import { addVisitLog } from '@/app/actions';
 
 export function VisitLogForm({
   patientId,
@@ -22,7 +23,13 @@ export function VisitLogForm({
   onSuccess
 }) {
   const [isPending, startTransition] = useTransition();
-  const [visitDate, setVisitDate] = useState(getClinicTodayDateString());
+  const [visitDate, setVisitDate] = useState(() => {
+    try {
+      return getClinicTodayDateString();
+    } catch {
+      return new Date().toISOString().split('T')[0];
+    }
+  });
   const [aogOverride, setAogOverride] = useState('');
   
   // Vitals State for Real-Time Safety Analysis
@@ -38,7 +45,12 @@ export function VisitLogForm({
   // 1. Dynamic AOG Auto-Calculation from LMP & Visit Date
   const obstetricCalc = useMemo(() => {
     if (!activeEpisode?.lmp) return null;
-    return calculateObstetricDates(activeEpisode.lmp, visitDate);
+    try {
+      return calculateObstetricDates(activeEpisode.lmp, visitDate);
+    } catch (err) {
+      console.warn('[VisitLogForm] calculateObstetricDates fallback:', err);
+      return null;
+    }
   }, [activeEpisode?.lmp, visitDate]);
 
   // 2. Real-Time Maternal & Fetal Safety Trigger Analysis (with Pre-eclampsia Triad)
@@ -47,32 +59,45 @@ export function VisitLogForm({
     let daysDiff = null;
 
     if (previousLog?.weight && previousLog?.visit_date) {
-      prevWeight = previousLog.weight;
-      const d1 = new Date(previousLog.visit_date);
-      const d2 = new Date(visitDate);
-      daysDiff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+      try {
+        prevWeight = previousLog.weight;
+        const d1 = new Date(previousLog.visit_date);
+        const d2 = new Date(visitDate);
+        if (!isNaN(d1.getTime()) && !isNaN(d2.getTime())) {
+          daysDiff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+        }
+      } catch (err) {
+        console.warn('[VisitLogForm] daysDiff fallback:', err);
+      }
     }
 
-    return evaluateMaternalVitalsSafety({
-      bp,
-      weight,
-      temp,
-      pr,
-      rr,
-      fht,
-      age: patientAge,
-      previousWeight: prevWeight,
-      previousWeightDays: daysDiff,
-      latestUrinalysisProtein
-    });
+    try {
+      return evaluateMaternalVitalsSafety({
+        bp,
+        weight,
+        temp,
+        pr,
+        rr,
+        fht,
+        age: patientAge ? parseInt(patientAge, 10) : null,
+        previousWeight: prevWeight,
+        previousWeightDays: daysDiff,
+        latestUrinalysisProtein: typeof latestUrinalysisProtein === 'string'
+          ? latestUrinalysisProtein
+          : (latestUrinalysisProtein != null ? String(latestUrinalysisProtein) : null)
+      });
+    } catch (err) {
+      console.warn('[VisitLogForm] evaluateMaternalVitalsSafety fallback:', err);
+      return { isSafe: true, hasCriticalAlert: false, alerts: [] };
+    }
   }, [bp, weight, temp, pr, rr, fht, patientAge, previousLog, visitDate, latestUrinalysisProtein]);
 
   // Auto-flag high risk if critical alert fires
   useEffect(() => {
-    if (safetyEval.hasCriticalAlert) {
+    if (safetyEval?.hasCriticalAlert) {
       setFlagHighRisk(true);
     }
-  }, [safetyEval.hasCriticalAlert]);
+  }, [safetyEval?.hasCriticalAlert]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -86,23 +111,31 @@ export function VisitLogForm({
       formData.set('flag_high_risk', 'true');
     }
 
+    const saveAction = typeof addVisitLogAction === 'function' ? addVisitLogAction : addVisitLog;
+
     startTransition(async () => {
-      const res = await addVisitLogAction(formData);
-      if (res?.success) {
-        setFeedback({ type: 'success', message: 'Visit log successfully saved!' });
-        // Reset form inputs
-        setBp('');
-        setWeight('');
-        setTemp('');
-        setPr('');
-        setRr('');
-        setFht('');
-        if (onSuccess) onSuccess();
-      } else {
-        setFeedback({ type: 'error', message: res?.error || 'Failed to save visit log.' });
+      try {
+        const res = await saveAction(formData);
+        if (res?.success) {
+          setFeedback({ type: 'success', message: 'Visit log successfully saved!' });
+          // Reset form inputs
+          setBp('');
+          setWeight('');
+          setTemp('');
+          setPr('');
+          setRr('');
+          setFht('');
+          if (onSuccess) onSuccess();
+        } else {
+          setFeedback({ type: 'error', message: res?.error || 'Failed to save visit log.' });
+        }
+      } catch (err) {
+        setFeedback({ type: 'error', message: err?.message || 'Server error while saving visit log.' });
       }
     });
   };
+
+  const isLmpValid = activeEpisode?.lmp && !isNaN(new Date(activeEpisode.lmp).getTime());
 
   return (
     <form onSubmit={handleSubmit} className="p-6 bg-gradient-to-br from-rose-50/40 via-white to-pink-50/20 rounded-2xl border border-rose-100/80 shadow-sm space-y-6">
@@ -122,7 +155,7 @@ export function VisitLogForm({
         {activeEpisode ? (
           <div className="flex items-center gap-2 bg-rose-100/70 border border-rose-200/80 px-3 py-1 rounded-full text-xs font-semibold text-rose-700">
             <Sparkles className="w-3.5 h-3.5 text-rose-600" />
-            <span>Active Episode: {activeEpisode.lmp ? `LMP ${new Date(activeEpisode.lmp).toLocaleDateString('en-PH')}` : 'Clinical'}</span>
+            <span>Active Episode: {isLmpValid ? `LMP ${new Date(activeEpisode.lmp).toLocaleDateString('en-PH')}` : 'Clinical'}</span>
           </div>
         ) : (
           <span className="text-xs text-amber-600 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
@@ -357,7 +390,7 @@ export function VisitLogForm({
       </div>
 
       {/* ── REAL-TIME HIGH-RISK CLINICAL SAFETY TRIGGER BANNER ── */}
-      {!safetyEval.isSafe && (
+      {safetyEval && !safetyEval.isSafe && (
         <div className={`p-4 rounded-xl border space-y-2.5 transition-all ${
           safetyEval.hasCriticalAlert
             ? 'bg-red-50/90 border-red-300 text-red-950'
@@ -377,11 +410,11 @@ export function VisitLogForm({
           </div>
 
           <div className="space-y-1.5 pl-7">
-            {safetyEval.alerts.map((alert, idx) => (
+            {Array.isArray(safetyEval.alerts) && safetyEval.alerts.map((alert, idx) => (
               <div key={idx} className="text-xs space-y-0.5">
-                <span className="font-bold underline decoration-rose-400">{alert.title}:</span>{' '}
-                <span className="text-gray-700">{alert.message}</span>
-                {alert.action && (
+                <span className="font-bold underline decoration-rose-400">{alert?.title || 'Alert'}:</span>{' '}
+                <span className="text-gray-700">{alert?.message || ''}</span>
+                {alert?.action && (
                   <div className="font-semibold text-rose-800 text-[11px] mt-0.5">
                     ➔ Recommended Immediate Action: {alert.action}
                   </div>

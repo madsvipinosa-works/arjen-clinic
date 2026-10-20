@@ -352,7 +352,7 @@ export function ClinicalOverviewBento({
                   </h3>
                   <p className="text-xs text-gray-500 font-medium">
                     {latestVisitLog?.visit_date ? (
-                      <>Examined on <strong className="text-gray-700">{new Date(latestVisitLog.visit_date).toLocaleDateString()}</strong> • {latestVisitLog.aog_by_lmp || 'AOG recorded'}</>
+                      <>Examined on <strong className="text-gray-700">{!isNaN(new Date(latestVisitLog.visit_date).getTime()) ? new Date(latestVisitLog.visit_date).toLocaleDateString('en-PH') : 'Recent Visit'}</strong> • {latestVisitLog.aog_by_lmp || 'AOG recorded'}</>
                     ) : (
                       'No visit logged yet for this pregnancy'
                     )}
@@ -548,7 +548,7 @@ export function ClinicalOverviewBento({
                   </h3>
                   <p className="text-xs text-gray-500 font-medium">
                     {latestLabResult?.test_date ? (
-                      <>Reported on <strong className="text-gray-700">{new Date(latestLabResult.test_date).toLocaleDateString()}</strong></>
+                      <>Reported on <strong className="text-gray-700">{!isNaN(new Date(latestLabResult.test_date).getTime()) ? new Date(latestLabResult.test_date).toLocaleDateString('en-PH') : 'Recorded Test'}</strong></>
                     ) : (
                       'No lab panels recorded'
                     )}

@@ -10,6 +10,8 @@ export function VisitLogCard({ log, patientId, staffName }) {
   const [editing, setEditing] = useState(false);
   const [isPending, startTransition] = useTransition();
 
+  if (!log) return null;
+
   const handleDelete = () => {
     if (!window.confirm('Delete this visit log? This cannot be undone.')) return;
     const fd = new FormData();
@@ -124,7 +126,7 @@ export function VisitLogCard({ log, patientId, staffName }) {
         <div className="flex flex-wrap items-center gap-2">
           <span className="bg-emerald-50 text-emerald-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-emerald-100">
             {log?.visit_date && !isNaN(new Date(log.visit_date).getTime())
-              ? new Date(log.visit_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+              ? new Date(log.visit_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
               : 'Routine Visit'}
           </span>
           {log.trimester && (
@@ -140,7 +142,7 @@ export function VisitLogCard({ log, patientId, staffName }) {
           )}
           {log.next_visit && !isNaN(new Date(log.next_visit).getTime()) && (
             <span className="bg-amber-50 text-amber-700 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border border-amber-100">
-              Next: {new Date(log.next_visit).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+              Next: {new Date(log.next_visit).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
           )}
         </div>
@@ -165,8 +167,10 @@ export function VisitLogCard({ log, patientId, staffName }) {
         <div className="p-2.5 rounded-xl bg-red-50 border border-red-200/80 text-xs text-red-900 space-y-1">
           <p className="font-bold text-[10px] uppercase tracking-wider text-red-700">Triggered Maternal Safety Thresholds:</p>
           <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-            {(Array.isArray(log.high_risk_reasons) ? log.high_risk_reasons : [log.high_risk_reasons]).map((r, i) => (
-              <li key={i} className="font-medium">{r}</li>
+            {(Array.isArray(log.high_risk_reasons) ? log.high_risk_reasons : [log.high_risk_reasons]).filter(Boolean).map((r, i) => (
+              <li key={i} className="font-medium">
+                {typeof r === 'object' ? (r?.reason || r?.title || JSON.stringify(r)) : String(r)}
+              </li>
             ))}
           </ul>
         </div>
@@ -228,7 +232,7 @@ export function VisitLogCard({ log, patientId, staffName }) {
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           <span>Recorded by:</span>
           <span className="font-bold text-gray-700">
-            {staffName || (typeof log.attending_staff_id === 'string' && log.attending_staff_id ? `Staff (${log.attending_staff_id.split('-')[0]})` : 'Clinic Staff')}
+            {staffName || (typeof log?.attending_staff_id === 'string' && log.attending_staff_id ? `Staff (${log.attending_staff_id.split('-')[0]})` : 'Clinic Staff')}
           </span>
         </div>
       </div>

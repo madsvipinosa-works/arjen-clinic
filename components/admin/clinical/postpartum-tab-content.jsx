@@ -227,7 +227,7 @@ export function PostpartumTabContent({
                   : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-50'
               }`}
             >
-              Delivery #{postpartumRecords.length - idx} • {rec.delivery_date ? new Date(rec.delivery_date).toLocaleDateString('en-PH') : 'Date unset'}
+              Delivery #{postpartumRecords.length - idx} • {rec.delivery_date && !isNaN(new Date(rec.delivery_date).getTime()) ? new Date(rec.delivery_date).toLocaleDateString('en-PH') : 'Date unset'}
             </button>
           ))}
         </div>
@@ -719,7 +719,7 @@ export function PostpartumTabContent({
                   <CalendarDays className="w-4 h-4 text-gray-400" />
                 </div>
                 <h3 className="text-2xl font-black text-gray-900 tracking-tight">
-                  {currentRecord.delivery_date
+                  {currentRecord.delivery_date && !isNaN(new Date(currentRecord.delivery_date).getTime())
                     ? new Date(currentRecord.delivery_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
                     : 'Date Not Documented'}
                 </h3>
@@ -744,7 +744,7 @@ export function PostpartumTabContent({
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400 font-bold uppercase text-[10px]">Postpartum Follow-up:</span>
                   <span className="font-semibold text-gray-700">
-                    {currentRecord.follow_up_date
+                    {currentRecord.follow_up_date && !isNaN(new Date(currentRecord.follow_up_date).getTime())
                       ? new Date(currentRecord.follow_up_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
                       : 'Not Scheduled'}
                   </span>

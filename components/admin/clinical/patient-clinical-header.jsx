@@ -177,7 +177,7 @@ export function PatientClinicalHeader({
                         {maternalEpisodes.map((ep, idx) => (
                           <option key={ep.id} value={ep.id}>
                             {ep.status === 'Active' ? '🟢 Active: ' : '⚪ Past: '}
-                            {ep.lmp ? `LMP ${new Date(ep.lmp).toLocaleDateString()}` : `Pregnancy #${maternalEpisodes.length - idx}`}
+                            {ep.lmp && !isNaN(new Date(ep.lmp).getTime()) ? `LMP ${new Date(ep.lmp).toLocaleDateString('en-PH')}` : `Pregnancy #${maternalEpisodes.length - idx}`}
                             {ep.status ? ` (${ep.status})` : ''}
                           </option>
                         ))}
@@ -350,7 +350,7 @@ export function PatientClinicalHeader({
                   {obstetricData?.isValid ? obstetricData.edcFormatted : '—'}
                 </p>
                 <p className="text-[11px] font-bold text-emerald-600/90 mt-0.5">
-                  LMP: {lmpDate ? new Date(lmpDate).toLocaleDateString() : 'Not recorded'}
+                  LMP: {lmpDate && !isNaN(new Date(lmpDate).getTime()) ? new Date(lmpDate).toLocaleDateString('en-PH') : 'Not recorded'}
                 </p>
               </div>
             </div>

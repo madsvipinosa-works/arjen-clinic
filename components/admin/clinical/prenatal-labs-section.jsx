@@ -158,7 +158,7 @@ export function PrenatalLabsSection({
         {latestLab ? (
           <div>
             <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3 flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-rose-500" /> Latest Panel Findings ({new Date(latestLab.test_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })})
+              <Sparkles className="w-3.5 h-3.5 text-rose-500" /> Latest Panel Findings ({latestLab?.test_date && !isNaN(new Date(latestLab.test_date).getTime()) ? new Date(latestLab.test_date).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Recent'})
             </h4>
 
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -289,7 +289,7 @@ export function PrenatalLabsSection({
                     <div className="flex items-center justify-between">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-xs font-bold text-gray-900 font-mono bg-rose-50 text-rose-700 px-2.5 py-1 rounded-md border border-rose-100">
-                          {new Date(result.test_date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          {result?.test_date && !isNaN(new Date(result.test_date).getTime()) ? new Date(result.test_date).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : 'Recorded Date'}
                         </span>
                         <span className="text-xs text-gray-500 font-medium">
                           {result.laboratory_name || 'Clinic Lab'}

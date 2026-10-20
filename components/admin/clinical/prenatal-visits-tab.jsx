@@ -18,8 +18,9 @@ export function PrenatalVisitsTab({
   visitLogs = [],
   staffMap = {}
 }) {
+  const safeLogs = Array.isArray(visitLogs) ? visitLogs : [];
   // If no visit logs exist yet, show form by default; otherwise start collapsed to prioritize past history
-  const [isFormOpen, setIsFormOpen] = useState(visitLogs.length === 0);
+  const [isFormOpen, setIsFormOpen] = useState(safeLogs.length === 0);
 
   return (
     <div className="space-y-4">
@@ -34,7 +35,7 @@ export function PrenatalVisitsTab({
                 <div className="flex items-center gap-2">
                   <CardTitle className="text-xl font-black text-gray-900 tracking-tight">Prenatal Checkup Logs</CardTitle>
                   <span className="bg-rose-100/70 text-rose-700 text-[10px] font-black uppercase tracking-wider px-2.5 py-0.5 rounded-full border border-rose-200/80 shadow-2xs">
-                    {visitLogs.length} {visitLogs.length === 1 ? 'Record' : 'Records'}
+                    {safeLogs.length} {safeLogs.length === 1 ? 'Record' : 'Records'}
                   </span>
                 </div>
                 <CardDescription className="text-xs text-gray-500 font-medium mt-0.5">
@@ -115,14 +116,14 @@ export function PrenatalVisitsTab({
               </h4>
             </div>
 
-            {visitLogs && visitLogs.length > 0 ? (
+            {safeLogs && safeLogs.length > 0 ? (
               <div className="space-y-4">
-                {visitLogs.map((log) => (
+                {safeLogs.filter(Boolean).map((log, idx) => (
                   <VisitLogCard
-                    key={log.id}
+                    key={log?.id || idx}
                     log={log}
                     patientId={patientId}
-                    staffName={staffMap[log.attending_staff_id]}
+                    staffName={staffMap?.[log?.attending_staff_id]}
                   />
                 ))}
               </div>
