@@ -457,11 +457,18 @@ export function PatientClinicalHeader({
                   </span>
                   <ShieldAlert className="w-3.5 h-3.5" />
                   <span>HIGH RISK PREGNANCY</span>
-                  {patient?.risk_reasons && Array.isArray(patient.risk_reasons) && patient.risk_reasons.length > 0 && (
-                    <span className="text-[10px] font-semibold bg-red-700/80 px-2 py-0.5 rounded-full">
-                      {patient.risk_reasons.join(' · ')}
-                    </span>
-                  )}
+                  {(() => {
+                    const reasons = Array.isArray(patient?.risk_reasons)
+                      ? patient.risk_reasons.filter(Boolean)
+                      : (typeof patient?.risk_reasons === 'string' && patient.risk_reasons.trim()
+                          ? patient.risk_reasons.replace(/^\{|\}$/g, '').split(',').map(s => s.trim().replace(/^"|"$/g, '')).filter(Boolean)
+                          : []);
+                    return reasons.length > 0 ? (
+                      <span className="text-[10px] font-semibold bg-red-700/80 px-2 py-0.5 rounded-full">
+                        {reasons.join(' · ')}
+                      </span>
+                    ) : null;
+                  })()}
                 </div>
 
                 <Button

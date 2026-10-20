@@ -17,6 +17,12 @@ import {
   canViewAuditLogs 
 } from "@/lib/rbac";
 import { getClinicTodayDateString, getClinicDateOffset } from "@/lib/utils";
+import { 
+  visitLogValidationSchema, 
+  prenatalLabValidationSchema, 
+  calculateObstetricDates, 
+  evaluateMaternalVitalsSafety 
+} from "@/lib/clinical-protocols";
 
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1152,169 +1158,185 @@ export async function createWalkInAppointment(formData) {
  * addVisitLog(formData)
  */
 export async function addVisitLog(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  try {
+    if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
-  const supabaseServer = await createClient();
-  const visitAuthResult = await supabaseServer.auth.getUser();
-  const visitUser = visitAuthResult?.data?.user;
+    const supabaseServer = await createClient();
+    const visitAuthResult = await supabaseServer.auth.getUser();
+    const visitUser = visitAuthResult?.data?.user;
 
-  const patient_id = formData.get('patient_id');
-  const maternal_episode_id = formData.get('maternal_episode_id') || null;
-  const attending_staff_id = visitUser?.id;
-  const bp = formData.get('bp');
-  const weight = formData.get('weight');
-  const doctor_notes = formData.get('doctor_notes');
-  const visit_date = formData.get('visit_date') || getClinicTodayDateString();
+    const patient_id = formData.get('patient_id');
+    const maternal_episode_id = formData.get('maternal_episode_id') || null;
+    const attending_staff_id = visitUser?.id;
+    const bp = formData.get('bp');
+    const weight = formData.get('weight');
+    const doctor_notes = formData.get('doctor_notes');
+    const visit_date = formData.get('visit_date') || getClinicTodayDateString();
 
-  // Clinical fields
-  let aog_by_lmp = formData.get('aog_by_lmp');
-  const aog_by_utz = formData.get('aog_by_utz') || null;
-  const temp = formData.get('temp') || null;
-  const pr = formData.get('pr') || null;
-  const rr = formData.get('rr') || null;
-  const fh = formData.get('fh') || null;
-  const fht = formData.get('fht') || null;
-  const ie = formData.get('ie') || null;
-  const next_visit = formData.get('next_visit') || null;
+    // Clinical fields
+    let aog_by_lmp = formData.get('aog_by_lmp');
+    const aog_by_utz = formData.get('aog_by_utz') || null;
+    const temp = formData.get('temp') || null;
+    const pr = formData.get('pr') || null;
+    const rr = formData.get('rr') || null;
+    const fh = formData.get('fh') || null;
+    const fht = formData.get('fht') || null;
+    const ie = formData.get('ie') || null;
+    const next_visit = formData.get('next_visit') || null;
 
-  if (!patient_id) return { success: false, error: 'Missing patient ID.' };
+    if (!patient_id) return { success: false, error: 'Missing patient ID.' };
 
-  // Runtime Zod Schema Validation
-  const validationResult = visitLogValidationSchema.safeParse({
-    patient_id,
-    maternal_episode_id,
-    visit_date,
-    bp,
-    weight,
-    temp: temp || null,
-    pr: pr || null,
-    rr: rr || null,
-    fh: fh || null,
-    fht: fht || null,
-    doctor_notes
-  });
-
-  if (!validationResult.success) {
-    const errorMsg = validationResult.error.issues.map(i => i.message).join(', ');
-    return { success: false, error: `Validation Error: ${errorMsg}` };
-  }
-
-  // Fetch patient profile, episode, and latest urinalysis protein for pre-eclampsia cross-referencing
-  const [{ data: patient }, { data: episode }, { data: latestLabs }] = await Promise.all([
-    supabaseServer.from('patients').select('id, age, is_high_risk').eq('id', patient_id).single(),
-    maternal_episode_id
-      ? supabaseServer.from('maternal_episodes').select('id, lmp, edc, is_high_risk').eq('id', maternal_episode_id).single()
-      : { data: null },
-    supabaseServer
-      .from('prenatal_lab_results')
-      .select('urinalysis_protein')
-      .eq('patient_id', patient_id)
-      .order('test_date', { ascending: false })
-      .limit(1)
-  ]);
-
-  // Dynamic AOG auto-calc if LMP is known and aog_by_lmp not provided
-  let aogWeeks = null;
-  let aogDays = null;
-  let trimester = null;
-
-  if (episode?.lmp) {
-    const obst = calculateObstetricDates(episode.lmp, visit_date);
-    if (obst.isValid) {
-      aogWeeks = obst.aogWeeks;
-      aogDays = obst.aogDays;
-      trimester = obst.trimester;
-      if (!aog_by_lmp) {
-        aog_by_lmp = obst.aogFormatted;
-      }
-    }
-  }
-
-  const latestProtein = latestLabs?.[0]?.urinalysis_protein || null;
-
-  // Safety trigger evaluation with pre-eclampsia triad cross-reference
-  const safety = evaluateMaternalVitalsSafety({
-    bp,
-    weight,
-    temp,
-    pr,
-    rr,
-    fht,
-    age: patient?.age,
-    latestUrinalysisProtein: latestProtein,
-  });
-
-  const is_high_risk_alert = !safety.isSafe;
-  const high_risk_reasons = safety.alerts.map(a => `${a.title}: ${a.action || a.message}`);
-
-  const { error } = await supabaseServer
-    .from('visit_logs')
-    .insert({
+    // Runtime Zod Schema Validation
+    const validationResult = visitLogValidationSchema.safeParse({
       patient_id,
       maternal_episode_id,
-      attending_staff_id,
+      visit_date,
       bp,
       weight,
-      doctor_notes,
-      visit_date,
-      aog_by_lmp,
-      aog_by_utz,
+      temp: temp || null,
+      pr: pr || null,
+      rr: rr || null,
+      fh: fh || null,
+      fht: fht || null,
+      doctor_notes
+    });
+
+    if (!validationResult.success) {
+      const errorMsg = validationResult.error.issues.map(i => i.message).join(', ');
+      return { success: false, error: `Validation Error: ${errorMsg}` };
+    }
+
+    // Fetch patient profile, episode, and latest urinalysis protein for pre-eclampsia cross-referencing
+    const [{ data: patient }, { data: episode }, { data: latestLabs }] = await Promise.all([
+      supabaseServer.from('patients').select('id, age, is_high_risk').eq('id', patient_id).maybeSingle(),
+      maternal_episode_id
+        ? supabaseServer.from('maternal_episodes').select('id, lmp, edc, is_high_risk').eq('id', maternal_episode_id).maybeSingle()
+        : { data: null },
+      supabaseServer
+        .from('prenatal_lab_results')
+        .select('urinalysis_protein')
+        .eq('patient_id', patient_id)
+        .order('test_date', { ascending: false })
+        .limit(1)
+    ]);
+
+    // Dynamic AOG auto-calc if LMP is known and aog_by_lmp not provided
+    let aogWeeks = null;
+    let aogDays = null;
+    let trimester = null;
+
+    if (episode?.lmp) {
+      const obst = calculateObstetricDates(episode.lmp, visit_date);
+      if (obst.isValid) {
+        aogWeeks = obst.aogWeeks;
+        aogDays = obst.aogDays;
+        trimester = obst.trimester;
+        if (!aog_by_lmp) {
+          aog_by_lmp = obst.aogFormatted;
+        }
+      }
+    }
+
+    const latestProtein = latestLabs?.[0]?.urinalysis_protein || null;
+
+    // Safety trigger evaluation with pre-eclampsia triad cross-reference
+    const safety = evaluateMaternalVitalsSafety({
+      bp,
+      weight,
       temp,
       pr,
       rr,
-      fh,
       fht,
-      ie,
-      next_visit,
-      is_high_risk_alert,
-      high_risk_reasons,
-      aog_weeks: aogWeeks,
-      aog_days: aogDays,
-      trimester
+      age: patient?.age,
+      latestUrinalysisProtein: latestProtein,
     });
 
-  if (error) {
-    console.error('[addVisitLog] error:', error.message);
-    return { success: false, error: error.message };
-  }
+    const is_high_risk_alert = !safety.isSafe;
+    const high_risk_reasons = Array.isArray(safety?.alerts)
+      ? safety.alerts.map(a => `${a.title}: ${a.action || a.message}`)
+      : [];
 
-  // Stamping high risk across both patient profile and active pregnancy episode
-  if (safety.shouldFlagHighRisk || formData.get('flag_high_risk') === 'true') {
-    await Promise.all([
-      supabaseServer
-        .from('patients')
-        .update({ is_high_risk: true })
-        .eq('id', patient_id),
-      maternal_episode_id
-        ? supabaseServer
-          .from('maternal_episodes')
-          .update({ is_high_risk: true, high_risk_reasons })
-          .eq('id', maternal_episode_id)
-        : Promise.resolve()
-    ]);
-  }
+    const { error } = await supabaseServer
+      .from('visit_logs')
+      .insert({
+        patient_id,
+        maternal_episode_id,
+        attending_staff_id,
+        bp,
+        weight,
+        doctor_notes,
+        visit_date,
+        aog_by_lmp,
+        aog_by_utz,
+        temp,
+        pr,
+        rr,
+        fh,
+        fht,
+        ie,
+        next_visit,
+        is_high_risk_alert,
+        high_risk_reasons,
+        aog_weeks: aogWeeks,
+        aog_days: aogDays,
+        trimester
+      });
 
-  // DPA 2012 Audit Trail
-  await logAuditEvent({
-    action: 'LOG_PRENATAL_VISIT',
-    entityType: 'visit_logs',
-    entityId: patient_id,
-    details: {
-      patient_id,
-      maternal_episode_id,
-      visit_date,
-      bp,
-      weight,
-      is_high_risk_alert,
-      high_risk_reasons,
-      aog: aog_by_lmp || (aogWeeks ? `${aogWeeks} ${aogDays}/7` : null),
+    if (error) {
+      console.error('[addVisitLog] DB insert error:', error.message);
+      return { success: false, error: error.message };
     }
-  });
 
-  revalidatePath(`/admin/patients/${patient_id}`);
-  revalidatePath('/admin/patients');
-  revalidatePath('/admin/appointments');
-  return { success: true, alerts: safety.alerts };
+    // Stamping high risk across both patient profile and active pregnancy episode
+    if (safety.shouldFlagHighRisk || formData.get('flag_high_risk') === 'true') {
+      await Promise.all([
+        supabaseServer
+          .from('patients')
+          .update({ is_high_risk: true })
+          .eq('id', patient_id),
+        maternal_episode_id
+          ? supabaseServer
+            .from('maternal_episodes')
+            .update({ is_high_risk: true, high_risk_reasons })
+            .eq('id', maternal_episode_id)
+          : Promise.resolve()
+      ]);
+    }
+
+    // DPA 2012 Audit Trail (Fail-safe)
+    try {
+      await logAuditEvent({
+        action: 'LOG_PRENATAL_VISIT',
+        entityType: 'visit_logs',
+        entityId: patient_id,
+        details: {
+          patient_id,
+          maternal_episode_id,
+          visit_date,
+          bp,
+          weight,
+          is_high_risk_alert,
+          high_risk_reasons,
+          aog: aog_by_lmp || (aogWeeks ? `${aogWeeks} ${aogDays}/7` : null),
+        }
+      });
+    } catch (auditErr) {
+      console.warn('[addVisitLog] Non-blocking audit log error:', auditErr?.message);
+    }
+
+    try {
+      revalidatePath(`/admin/patients/${patient_id}`);
+      revalidatePath('/admin/patients');
+      revalidatePath('/admin/appointments');
+    } catch (revalErr) {
+      console.warn('[addVisitLog] Path revalidation non-blocking error:', revalErr?.message);
+    }
+
+    return { success: true, alerts: safety.alerts };
+  } catch (err) {
+    console.error('[addVisitLog UNCAUGHT EXCEPTION]:', err);
+    return { success: false, error: err?.message || 'Server error while saving visit log.' };
+  }
 }
 
 /**
@@ -1322,117 +1344,131 @@ export async function addVisitLog(formData) {
  * Saves structured prenatal laboratory panel results with automated clinical anomaly alerts.
  */
 export async function addPrenatalLabResult(formData) {
-  if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
+  try {
+    if (!(await verifyAdmin())) return { success: false, error: 'Unauthorized' };
 
-  const supabaseServer = await createClient();
-  const labAuthResult = await supabaseServer.auth.getUser();
-  const user = labAuthResult?.data?.user;
+    const supabaseServer = await createClient();
+    const labAuthResult = await supabaseServer.auth.getUser();
+    const user = labAuthResult?.data?.user;
 
-  const patient_id = formData.get('patient_id');
-  const maternal_episode_id = formData.get('maternal_episode_id') || null;
-  const test_date = formData.get('test_date') || getClinicTodayDateString();
-  const laboratory_name = formData.get('laboratory_name') || 'AR-JEN Clinic Laboratory';
+    const patient_id = formData.get('patient_id');
+    const maternal_episode_id = formData.get('maternal_episode_id') || null;
+    const test_date = formData.get('test_date') || getClinicTodayDateString();
+    const laboratory_name = formData.get('laboratory_name') || 'AR-JEN Clinic Laboratory';
 
-  const hemoglobin = formData.get('hemoglobin') ? parseFloat(formData.get('hemoglobin')) : null;
-  const hematocrit = formData.get('hematocrit') ? parseFloat(formData.get('hematocrit')) : null;
-  const blood_type = formData.get('blood_type') || null;
-  const urinalysis_protein = formData.get('urinalysis_protein') || null;
-  const urinalysis_glucose = formData.get('urinalysis_glucose') || null;
-  const urinalysis_pus_cells = formData.get('urinalysis_pus_cells') || null;
-  const urinalysis_rbc = formData.get('urinalysis_rbc') || null;
-  const hbsag_status = formData.get('hbsag_status') || 'Pending';
-  const vdrl_rpr_status = formData.get('vdrl_rpr_status') || 'Pending';
-  const hiv_screening_status = formData.get('hiv_screening_status') || 'Pending';
-  const ogtt_fasting = formData.get('ogtt_fasting') ? parseFloat(formData.get('ogtt_fasting')) : null;
-  const ogtt_1hr = formData.get('ogtt_1hr') ? parseFloat(formData.get('ogtt_1hr')) : null;
-  const ogtt_2hr = formData.get('ogtt_2hr') ? parseFloat(formData.get('ogtt_2hr')) : null;
-  const ultrasound_summary = formData.get('ultrasound_summary') || null;
-  const remarks = formData.get('remarks') || null;
+    const hemoglobin = formData.get('hemoglobin') ? parseFloat(formData.get('hemoglobin')) : null;
+    const hematocrit = formData.get('hematocrit') ? parseFloat(formData.get('hematocrit')) : null;
+    const blood_type = formData.get('blood_type') || null;
+    const urinalysis_protein = formData.get('urinalysis_protein') || null;
+    const urinalysis_glucose = formData.get('urinalysis_glucose') || null;
+    const urinalysis_pus_cells = formData.get('urinalysis_pus_cells') || null;
+    const urinalysis_rbc = formData.get('urinalysis_rbc') || null;
+    const hbsag_status = formData.get('hbsag_status') || 'Pending';
+    const vdrl_rpr_status = formData.get('vdrl_rpr_status') || 'Pending';
+    const hiv_screening_status = formData.get('hiv_screening_status') || 'Pending';
+    const ogtt_fasting = formData.get('ogtt_fasting') ? parseFloat(formData.get('ogtt_fasting')) : null;
+    const ogtt_1hr = formData.get('ogtt_1hr') ? parseFloat(formData.get('ogtt_1hr')) : null;
+    const ogtt_2hr = formData.get('ogtt_2hr') ? parseFloat(formData.get('ogtt_2hr')) : null;
+    const ultrasound_summary = formData.get('ultrasound_summary') || null;
+    const remarks = formData.get('remarks') || null;
 
-  if (!patient_id) return { success: false, error: 'Missing patient ID.' };
+    if (!patient_id) return { success: false, error: 'Missing patient ID.' };
 
-  // Runtime Zod Schema Validation
-  const labValidation = prenatalLabValidationSchema.safeParse({
-    patient_id,
-    maternal_episode_id,
-    test_date,
-    hemoglobin,
-    hematocrit,
-    blood_type,
-    urinalysis_protein,
-    urinalysis_glucose,
-    hbsag_status,
-    vdrl_rpr_status,
-    hiv_screening_status,
-    ogtt_fasting,
-    ogtt_1hr,
-    ogtt_2hr,
-  });
-
-  if (!labValidation.success) {
-    const errorMsg = labValidation.error.issues.map(i => i.message).join(', ');
-    return { success: false, error: `Validation Error: ${errorMsg}` };
-  }
-
-  const { error } = await supabaseServer
-    .from('prenatal_lab_results')
-    .insert({
+    // Runtime Zod Schema Validation
+    const labValidation = prenatalLabValidationSchema.safeParse({
       patient_id,
       maternal_episode_id,
       test_date,
-      laboratory_name,
       hemoglobin,
       hematocrit,
       blood_type,
       urinalysis_protein,
       urinalysis_glucose,
-      urinalysis_pus_cells,
-      urinalysis_rbc,
       hbsag_status,
       vdrl_rpr_status,
       hiv_screening_status,
       ogtt_fasting,
       ogtt_1hr,
       ogtt_2hr,
-      ultrasound_summary,
-      remarks,
-      created_by: user?.id,
     });
 
-  if (error) {
-    console.error('[addPrenatalLabResult] error:', error.message);
-    return { success: false, error: error.message };
-  }
-
-  // DPA 2012 Audit Trail
-  await logAuditEvent({
-    action: 'RECORD_LAB_PANEL',
-    entityType: 'prenatal_lab_results',
-    entityId: patient_id,
-    details: {
-      patient_id,
-      maternal_episode_id,
-      test_date,
-      blood_type,
-      hemoglobin,
-      hematocrit,
-      urinalysis_protein,
-      remarks,
+    if (!labValidation.success) {
+      const errorMsg = labValidation.error.issues.map(i => i.message).join(', ');
+      return { success: false, error: `Validation Error: ${errorMsg}` };
     }
-  });
 
-  // Also sync blood_type to patients record if given and not already set
-  if (blood_type) {
-    await supabaseServer
-      .from('patients')
-      .update({ blood_type })
-      .eq('id', patient_id)
-      .is('blood_type', null);
+    const { error } = await supabaseServer
+      .from('prenatal_lab_results')
+      .insert({
+        patient_id,
+        maternal_episode_id,
+        test_date,
+        laboratory_name,
+        hemoglobin,
+        hematocrit,
+        blood_type,
+        urinalysis_protein,
+        urinalysis_glucose,
+        urinalysis_pus_cells,
+        urinalysis_rbc,
+        hbsag_status,
+        vdrl_rpr_status,
+        hiv_screening_status,
+        ogtt_fasting,
+        ogtt_1hr,
+        ogtt_2hr,
+        ultrasound_summary,
+        remarks,
+        created_by: user?.id,
+      });
+
+    if (error) {
+      console.error('[addPrenatalLabResult] error:', error.message);
+      return { success: false, error: error.message };
+    }
+
+    // DPA 2012 Audit Trail (Fail-safe)
+    try {
+      await logAuditEvent({
+        action: 'RECORD_LAB_PANEL',
+        entityType: 'prenatal_lab_results',
+        entityId: patient_id,
+        details: {
+          patient_id,
+          maternal_episode_id,
+          test_date,
+          blood_type,
+          hemoglobin,
+          hematocrit,
+          urinalysis_protein,
+          remarks,
+        }
+      });
+    } catch (auditErr) {
+      console.warn('[addPrenatalLabResult] Non-blocking audit log error:', auditErr?.message);
+    }
+
+    // Also sync blood_type to patients record if given and not already set
+    if (blood_type) {
+      await supabaseServer
+        .from('patients')
+        .update({ blood_type })
+        .eq('id', patient_id)
+        .is('blood_type', null);
+    }
+
+    try {
+      revalidatePath(`/admin/patients/${patient_id}`);
+      revalidatePath('/admin/patients');
+    } catch (revalErr) {
+      console.warn('[addPrenatalLabResult] Path revalidation non-blocking error:', revalErr?.message);
+    }
+
+    return { success: true };
+  } catch (err) {
+    console.error('[addPrenatalLabResult UNCAUGHT EXCEPTION]:', err);
+    return { success: false, error: err?.message || 'Server error while saving lab results.' };
   }
-
-  revalidatePath(`/admin/patients/${patient_id}`);
-  revalidatePath('/admin/patients');
-  return { success: true };
 }
 
 /**

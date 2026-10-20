@@ -14,7 +14,6 @@ export function PrenatalVisitsTab({
   previousLog,
   isHighRisk,
   latestUrinalysisProtein,
-  addVisitLogAction,
   visitLogs = [],
   staffMap = {}
 }) {
@@ -100,7 +99,6 @@ export function PrenatalVisitsTab({
                 previousLog={previousLog}
                 isHighRisk={isHighRisk}
                 latestUrinalysisProtein={latestUrinalysisProtein}
-                addVisitLogAction={addVisitLogAction}
                 onSuccess={() => setIsFormOpen(false)}
               />
             </div>

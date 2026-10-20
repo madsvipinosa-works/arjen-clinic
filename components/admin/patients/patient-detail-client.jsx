@@ -21,7 +21,6 @@ import { PostpartumTabContent } from '@/components/admin/clinical/postpartum-tab
 import { DeleteAttachmentButton } from '@/components/admin/patients/delete-attachment-button';
 import { PatientTabsContext } from '@/components/admin/clinical/patient-tabs-wrapper';
 import {
-  addVisitLog,
   updateBirthPlan,
   uploadAttachment,
   updateModularData
@@ -260,7 +259,6 @@ export function PatientDetailClient({
                 previousLog={visitLogs?.[0] || null}
                 isHighRisk={patient?.is_high_risk}
                 latestUrinalysisProtein={prenatalLabResults?.[0]?.urinalysis_protein}
-                addVisitLogAction={addVisitLog}
                 visitLogs={visitLogs || []}
                 staffMap={staffMap}
               />
