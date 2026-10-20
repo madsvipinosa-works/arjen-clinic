@@ -32,6 +32,7 @@ import { ServiceManager } from "@/components/forms/service-manager";
 import { LogoStudio } from "@/components/admin/logo-studio";
 import { FaviconStudio } from "@/components/admin/favicon-studio";
 import { TrustPointsManager } from "@/components/admin/trust-points-manager";
+import AnimatedTabs from "@/components/ui/animated-tabs";
 import {
   updateHeroContent,
   updateNavbarLogo,
@@ -45,6 +46,7 @@ import {
 
 export function CMSManager({ initialSettings }) {
   const [settings, setSettings] = useState(initialSettings || {});
+  const [activeTab, setActiveTab] = useState("hero");
   const [notification, setNotification] = useState(null); // { type: 'success' | 'error', title: string, message: string }
   const [savingKey, setSavingKey] = useState(null); // identifier of active form saving
   const [savedKey, setSavedKey] = useState(null); // identifier of recently saved form
@@ -308,54 +310,21 @@ export function CMSManager({ initialSettings }) {
         </div>
       )}
 
-      {/* ── Tabs Navigation: Modern Glassmorphic Command Strip ── */}
-      <Tabs defaultValue="hero" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 h-auto p-1.5 bg-slate-100/90 backdrop-blur-md rounded-2xl border border-slate-200/90 shadow-inner gap-1.5 items-center">
-          {/* Tab 1: Hero & Visuals */}
-          <TabsTrigger
-            value="hero"
-            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-rose-600 data-active:text-rose-600 data-[state=active]:border-rose-100 data-active:border-rose-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
-          >
-            <ImageIcon className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="truncate">Hero &amp; Visuals</span>
-          </TabsTrigger>
-
-          {/* Tab 2: Services Catalog */}
-          <TabsTrigger
-            value="services"
-            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-amber-600 data-active:text-amber-600 data-[state=active]:border-amber-100 data-active:border-amber-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
-          >
-            <LayoutGrid className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="truncate">Services Catalog</span>
-          </TabsTrigger>
-
-          {/* Tab 3: Logo & SEO */}
-          <TabsTrigger
-            value="general"
-            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-sky-600 data-active:text-sky-600 data-[state=active]:border-sky-100 data-active:border-sky-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
-          >
-            <Globe className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="truncate">Logo &amp; SEO</span>
-          </TabsTrigger>
-
-          {/* Tab 4: About & Trust */}
-          <TabsTrigger
-            value="about"
-            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-rose-600 data-active:text-rose-600 data-[state=active]:border-rose-100 data-active:border-rose-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
-          >
-            <MessageSquare className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="truncate">About &amp; Trust</span>
-          </TabsTrigger>
-
-          {/* Tab 5: Footer & Hours */}
-          <TabsTrigger
-            value="footer"
-            className="flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl border border-transparent font-bold text-xs sm:text-sm transition-all duration-200 data-[state=active]:bg-white data-active:bg-white data-[state=active]:text-purple-600 data-active:text-purple-600 data-[state=active]:border-purple-100 data-active:border-purple-100 data-[state=active]:shadow-sm data-active:shadow-sm text-slate-600 hover:text-slate-900 hover:bg-white/60 cursor-pointer"
-          >
-            <Phone className="w-4 h-4 shrink-0 transition-transform group-hover:scale-110" />
-            <span className="truncate">Footer &amp; Hours</span>
-          </TabsTrigger>
-        </TabsList>
+      {/* ── Tabs Navigation: Motion Animated Segmented Tabs ── */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <AnimatedTabs
+          tabs={[
+            { id: "hero", label: "Hero & Visuals", icon: <ImageIcon className="w-4 h-4 shrink-0" /> },
+            { id: "services", label: "Services Catalog", icon: <LayoutGrid className="w-4 h-4 shrink-0" /> },
+            { id: "general", label: "Logo & SEO", icon: <Globe className="w-4 h-4 shrink-0" /> },
+            { id: "about", label: "About & Trust", icon: <MessageSquare className="w-4 h-4 shrink-0" /> },
+            { id: "footer", label: "Footer & Hours", icon: <Phone className="w-4 h-4 shrink-0" /> },
+          ]}
+          activeTab={activeTab}
+          onChange={setActiveTab}
+          variant="segment"
+          className="w-full bg-slate-100/90 backdrop-blur-md rounded-2xl border border-slate-200/90 p-1.5 shadow-inner"
+        />
 
         {/* ══════════════════════════════════════════════════
             HERO TAB
