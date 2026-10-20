@@ -140,25 +140,34 @@ function LogoMark({ dark = false, logoSrc = null }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN EXPORT
 // ─────────────────────────────────────────────────────────────────────────────
-const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
+const Navbar1 = ({ user = null, logoutAction = null, settings = null, navbarLogo = null }) => {
   const [scrolled, setScrolled] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [desktopServicesOpen, setDesktopServicesOpen] = useState(false);
   const [mobileServicesOpen, setMobileServicesOpen] = useState(false);
   const dropdownRef = useRef(null);
+  const effectiveLogo = navbarLogo || settings?.navbar_logo;
 
-  // Scroll-aware: switch from transparent-over-hero to frosted white
+  // Scroll-aware: switch from transparent-over-hero to frosted white using rAF
   useEffect(() => {
+    let ticking = false;
     const onScroll = () => {
-      const isPastThreshold = window.scrollY > 20;
-      setScrolled((prev) => (prev !== isPastThreshold ? isPastThreshold : prev));
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const isPastThreshold = window.scrollY > 20;
+          setScrolled((prev) => (prev !== isPastThreshold ? isPastThreshold : prev));
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
 
-  // Close desktop dropdown on outside click
+  // Close desktop dropdown on outside click (ONLY attached when dropdown is actually open!)
   useEffect(() => {
+    if (!desktopServicesOpen) return;
     function handleClickOutside(event) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setDesktopServicesOpen(false);
@@ -166,7 +175,7 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [desktopServicesOpen]);
 
   // Lock body scroll and handle Escape key when mobile menu is open
   useEffect(() => {
@@ -199,7 +208,7 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
         <nav className="hidden h-16 items-center justify-between lg:flex">
 
           {/* Left: Logo */}
-          <LogoMark dark={scrolled} logoSrc={settings?.navbar_logo} />
+          <LogoMark dark={scrolled} logoSrc={effectiveLogo} />
 
           {/* Center: Nav links */}
           <div className="mx-6 flex items-center gap-1" ref={dropdownRef}>
@@ -381,7 +390,7 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
 
         {/* ── MOBILE NAV ── */}
         <div className="flex h-14 items-center justify-between lg:hidden">
-          <LogoMark dark={scrolled} logoSrc={settings?.navbar_logo} />
+          <LogoMark dark={scrolled} logoSrc={effectiveLogo} />
 
           <button
             type="button"
@@ -409,7 +418,7 @@ const Navbar1 = ({ user = null, logoutAction = null, settings = null }) => {
               <div className="fixed right-0 top-0 bottom-0 w-[300px] sm:w-[340px] bg-white shadow-2xl flex flex-col z-50 animate-in slide-in-from-right duration-300">
                 {/* Header */}
                 <div className="flex items-center justify-between border-b border-border px-6 py-4">
-                  <LogoMark dark logoSrc={settings?.navbar_logo} />
+                  <LogoMark dark logoSrc={effectiveLogo} />
                   <button
                     type="button"
                     onClick={() => setMobileOpen(false)}

@@ -32,7 +32,7 @@ export default async function PublicLayout({ children }) {
   return (
     <div className="min-h-screen flex flex-col bg-white font-sans text-gray-800">
       {/* Integrated Shadcn Mega-Menu Navbar Block */}
-      <Navbar1 user={user} logoutAction={logout} settings={settings} />
+      <Navbar1 user={user} logoutAction={logout} navbarLogo={settings?.navbar_logo} />
 
       {/* Main Content Area */}
       <main className="flex-1 w-full bg-white">

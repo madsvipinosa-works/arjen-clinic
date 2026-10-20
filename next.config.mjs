@@ -20,6 +20,7 @@ const nextConfig = {
     cpus: 4,
     // Enable Turbopack filesystem cache for dev to save RAM
     turbopackFileSystemCacheForDev: true,
+    optimizePackageImports: ["lucide-react"],
   },
   images: {
     formats: ["image/avif", "image/webp"],

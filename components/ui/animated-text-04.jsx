@@ -14,15 +14,17 @@ const AnimatedTextRoller = () => {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
-    let isMounted = true;
-    const interval = setInterval(() => {
-      if (isMounted) {
+    let interval;
+    // Delay animation start until browser settles after page load to keep main thread completely idle
+    const timer = setTimeout(() => {
+      interval = setInterval(() => {
         setIndex((prev) => (prev + 1) % greetings.length);
-      }
-    }, 2500);
+      }, 2500);
+    }, 1200);
+
     return () => {
-      isMounted = false;
-      clearInterval(interval);
+      clearTimeout(timer);
+      if (interval) clearInterval(interval);
     };
   }, []);
 
