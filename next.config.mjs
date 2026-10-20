@@ -22,6 +22,10 @@ const nextConfig = {
     turbopackFileSystemCacheForDev: true,
   },
   images: {
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 60 * 60 * 24 * 30, // 30-day cache for remote Supabase and Unsplash assets
+    imageSizes: [16, 32, 44, 48, 64, 96, 128, 256, 384],
+    deviceSizes: [640, 750, 828, 1080, 1200, 1920],
     remotePatterns: [
       {
         protocol: "https",

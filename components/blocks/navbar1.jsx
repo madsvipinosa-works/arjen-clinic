@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import Image from "next/image";
 import {
   Heart,
   Baby,
@@ -96,25 +97,28 @@ const MOBILE_EXTRA = [
 function LogoMark({ dark = false, logoSrc = null }) {
   return (
     <a href="/" className="flex items-center gap-3 group select-none py-1">
-      {/* Dedicated Logo Image Container / Placeholder */}
+      {/* Dedicated Logo Image Container / Placeholder (GPU-composited transform) */}
       <div
         className={cn(
-          "relative flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl overflow-hidden border shadow-sm transition-all duration-300 group-hover:scale-105 group-hover:shadow-md",
+          "relative flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-2xl overflow-hidden border shadow-sm transition-transform duration-200 group-hover:scale-105",
           dark
             ? "bg-white border-primary/20 shadow-primary/5"
             : "bg-white/95 border-white/40 shadow-black/5"
         )}
       >
         {logoSrc ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <Image
             src={logoSrc}
             alt="AR-JEN Maternity Clinic Logo"
-            className="h-full w-full object-contain p-0.5 transition-transform duration-300 group-hover:scale-105"
+            width={44}
+            height={44}
+            sizes="44px"
+            priority
+            className="h-full w-full object-contain p-0.5"
           />
         ) : (
           <div className="flex flex-col items-center justify-center text-primary">
-            <Heart className="h-5 w-5 fill-primary text-primary transition-transform duration-300 group-hover:scale-110" />
+            <Heart className="h-5 w-5 fill-primary text-primary transition-transform duration-200 group-hover:scale-110" />
             <span className="text-[7px] font-black uppercase tracking-tighter -mt-0.5 leading-none">AR·JEN</span>
           </div>
         )}
@@ -125,7 +129,7 @@ function LogoMark({ dark = false, logoSrc = null }) {
         <div className="flex items-center gap-1.5">
           <span
             className={cn(
-              "font-serif text-lg sm:text-xl font-black tracking-tight transition-colors",
+              "font-serif text-lg sm:text-xl font-black tracking-tight",
               dark ? "text-slate-900 group-hover:text-primary" : "text-white"
             )}
           >
@@ -144,7 +148,7 @@ function LogoMark({ dark = false, logoSrc = null }) {
         </div>
         <span
           className={cn(
-            "text-[10px] sm:text-[11px] font-semibold tracking-widest uppercase mt-0.5 transition-colors",
+            "text-[10px] sm:text-[11px] font-semibold tracking-widest uppercase mt-0.5",
             dark ? "text-muted-foreground font-medium" : "text-white/80"
           )}
         >

@@ -2,14 +2,20 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { createClient } from "@/utils/supabase/server";
 
+// NOTE: the variable must NOT be named "--font-sans" — that name is Tailwind's own
+// theme token in globals.css, and the self-reference breaks the font stack.
+// display "optional" prevents late-arriving web fonts from reflowing text (CLS).
 const fontSans = Geist({
-  variable: "--font-sans",
+  variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const fontMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
+  preload: false,
 });
 
 export async function generateMetadata() {

@@ -114,7 +114,6 @@ export default async function LandingPage({ searchParams }) {
                     src={heroImageLeft}
                     alt="AR-JEN Clinic Maternal Care"
                     fill
-                    unoptimized
                     sizes="(max-width: 640px) 256px, (max-width: 1024px) 288px, 320px"
                     className="object-cover transition-transform duration-700 group-hover:scale-105"
                     priority
@@ -219,7 +218,6 @@ export default async function LandingPage({ searchParams }) {
                     src={heroImageRight}
                     alt="Happy newborn at AR-JEN Clinic"
                     fill
-                    unoptimized
                     sizes="(max-width: 640px) 256px, (max-width: 1024px) 288px, 320px"
                     className="object-cover transition-transform duration-700 group-hover:scale-105"
                     priority
