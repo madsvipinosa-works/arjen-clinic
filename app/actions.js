@@ -3020,9 +3020,29 @@ export async function updateAboutContent(formData) {
   let trust_points = [];
   try {
     const raw = formData.get('trust_points');
-    if (raw) trust_points = JSON.parse(raw);
+    if (raw) {
+      if (typeof raw === 'string') {
+        trust_points = JSON.parse(raw);
+      } else if (Array.isArray(raw)) {
+        trust_points = raw;
+      }
+    }
   } catch (e) {
-    return { success: false, error: 'Invalid JSON for trust points' };
+    return { success: false, error: 'Invalid data format for trust points. Please review your entries.' };
+  }
+
+  // Ensure trust_points is an array of clean objects
+  if (Array.isArray(trust_points)) {
+    trust_points = trust_points
+      .map((p, idx) => ({
+        id: p.id || `tp_${idx + 1}`,
+        title: String(p.title || p.label || '').trim(),
+        description: String(p.description || p.desc || '').trim(),
+        icon: String(p.icon || 'ShieldCheck').trim()
+      }))
+      .filter((p) => p.title.length > 0);
+  } else {
+    trust_points = [];
   }
 
   const { error } = await supabaseServer.from('clinic_settings').upsert({

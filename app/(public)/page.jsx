@@ -409,8 +409,11 @@ export default async function LandingPage({ searchParams }) {
                   if (point.icon === "Users" || point.Icon === Users) PointIcon = Users;
                   if (point.icon === "Home" || point.Icon === Home) PointIcon = Home;
                   if (point.icon === "ShieldCheck" || point.Icon === ShieldCheck) PointIcon = ShieldCheck;
-                  if (point.icon === "HeartPulse") PointIcon = Heart;
+                  if (point.icon === "HeartPulse" || point.icon === "Heart") PointIcon = Heart;
                   if (point.icon === "Building") PointIcon = Home;
+                  if (point.icon === "Baby") PointIcon = Baby;
+                  if (point.icon === "Star" || point.icon === "Award") PointIcon = Star;
+                  if (point.icon === "Sparkles") PointIcon = Sparkles;
 
                   return (
                     <div

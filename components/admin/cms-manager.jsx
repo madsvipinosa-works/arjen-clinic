@@ -30,6 +30,7 @@ import {
 import { ServiceManager } from "@/components/forms/service-manager";
 import { LogoStudio } from "@/components/admin/logo-studio";
 import { FaviconStudio } from "@/components/admin/favicon-studio";
+import { TrustPointsManager } from "@/components/admin/trust-points-manager";
 import {
   updateHeroContent,
   updateNavbarLogo,
@@ -958,40 +959,41 @@ export function CMSManager({ initialSettings }) {
                   </div>
                 </div>
 
-                <div className="pt-4 border-t border-gray-100 max-w-3xl">
-                  <h3 className="text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
-                    Trust Points (JSON Format)
-                  </h3>
-                  <textarea
-                    name="trust_points"
-                    defaultValue={JSON.stringify(trustPoints, null, 2)}
-                    rows={10}
-                    className="flex w-full rounded-xl border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-mono ring-offset-white placeholder:text-gray-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500"
+                <div className="pt-6 border-t border-rose-100">
+                  <TrustPointsManager
+                    initialTrustPoints={trustPoints}
+                    onChange={(updatedPoints) => {
+                      setSettings((prev) => ({ ...prev, trust_points: updatedPoints }));
+                    }}
                   />
-                  <p className="text-xs text-gray-400 mt-2">Controls the 4 feature cards in the About section.</p>
                 </div>
 
-                <Button
-                  type="submit"
-                  disabled={savingKey === "about_content"}
-                  className={`font-bold rounded-xl h-11 px-6 transition-all ${
-                    savedKey === "about_content"
-                      ? "bg-emerald-600 hover:bg-emerald-700 text-white"
-                      : "bg-rose-600 hover:bg-rose-700 text-white"
-                  }`}
-                >
-                  {savingKey === "about_content" ? (
-                    <>
-                      <Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving About Section...
-                    </>
-                  ) : savedKey === "about_content" ? (
-                    <>
-                      <Check className="w-4 h-4 mr-2" /> About Section Saved!
-                    </>
-                  ) : (
-                    "Save About Section"
-                  )}
-                </Button>
+                <div className="pt-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-gray-100">
+                  <p className="text-xs text-gray-400">
+                    Saves and publishes Section Headline, Storytelling text, and all Trust Points live to the homepage.
+                  </p>
+                  <Button
+                    type="submit"
+                    disabled={savingKey === "about_content"}
+                    className={`font-bold rounded-xl h-11 px-8 transition-all cursor-pointer shadow-sm ${
+                      savedKey === "about_content"
+                        ? "bg-emerald-600 hover:bg-emerald-700 text-white"
+                        : "bg-rose-600 hover:bg-rose-700 text-white"
+                    }`}
+                  >
+                    {savingKey === "about_content" ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin mr-2" /> Saving About &amp; Trust...
+                      </>
+                    ) : savedKey === "about_content" ? (
+                      <>
+                        <Check className="w-4 h-4 mr-2" /> Saved &amp; Published!
+                      </>
+                    ) : (
+                      "Save About & Trust Points"
+                    )}
+                  </Button>
+                </div>
               </form>
             </CardContent>
           </Card>
