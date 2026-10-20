@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendEmail } from '@/utils/email';
 import { verifyCronSecret } from '@/lib/cron-guard';
-import { getClinicTodayDateString, getClinicDateOffset } from '@/lib/utils';
+import { getClinicTodayDateString, getClinicDateOffset, getClinicSiteUrl, isPlaceholderEmail } from '@/lib/utils';
 import { logAuditEvent } from '@/lib/audit-logger';
 
 export async function GET(request) {
@@ -87,25 +87,23 @@ export async function GET(request) {
       .limit(1)
       .maybeSingle();
 
-    const isPlaceholderEmail = (email) => {
-      if (!email || typeof email !== 'string') return true;
-      const lower = email.toLowerCase().trim();
-      return (
-        lower.endsWith('@example.com') ||
-        lower.endsWith('@arjenclinic.com') ||
-        lower.includes('placeholder') ||
-        lower === 'hello@arjenclinic.com'
-      );
-    };
+    const validFooterEmail = !isPlaceholderEmail(settings?.footer_email) ? settings.footer_email.trim() : null;
+    const validAdminUserEmail = !isPlaceholderEmail(adminUser?.email) ? adminUser.email.trim() : null;
+    const validAdminCredEmail = !isPlaceholderEmail(adminCred?.email) ? adminCred.email.trim() : null;
+    const configuredAdminEmail = process.env.ADMIN_NOTIFICATION_EMAIL && !isPlaceholderEmail(process.env.ADMIN_NOTIFICATION_EMAIL)
+      ? process.env.ADMIN_NOTIFICATION_EMAIL.trim()
+      : null;
+    const fallbackEmailUser = process.env.EMAIL_USER && !isPlaceholderEmail(process.env.EMAIL_USER)
+      ? process.env.EMAIL_USER.trim()
+      : null;
 
-    const validFooterEmail = !isPlaceholderEmail(settings?.footer_email) ? settings.footer_email : null;
-    const validAdminUserEmail = !isPlaceholderEmail(adminUser?.email) ? adminUser.email : null;
-    const validAdminCredEmail = !isPlaceholderEmail(adminCred?.email) ? adminCred.email : null;
-
-    const recipientEmail = validFooterEmail || process.env.EMAIL_USER || validAdminUserEmail || validAdminCredEmail;
-    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 
-      (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://arjen-clinic.vercel.app'));
+    // Recipient hierarchy:
+    // 1. Explicit admin notification email in env (ADMIN_NOTIFICATION_EMAIL)
+    // 2. Real custom clinic contact email set by staff in settings
+    // 3. Authenticated Gmail account running the mailer engine (EMAIL_USER)
+    // 4. Valid database admin email (non-placeholder)
+    const recipientEmail = configuredAdminEmail || validFooterEmail || fallbackEmailUser || validAdminUserEmail || validAdminCredEmail;
+    const siteUrl = getClinicSiteUrl();
     const clinicName = settings?.clinic_name || "AR-JEN Maternity Clinic";
 
     let emailSent = false;

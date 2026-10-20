@@ -1,4 +1,5 @@
 import nodemailer from 'nodemailer';
+import { isPlaceholderEmail } from '@/lib/utils';
 
 /**
  * Singleton cached NodeMailer transporter with connection pooling.
@@ -220,8 +221,18 @@ export async function sendEmail({ to, subject, html, text }) {
     return { success: false, error: 'Credentials not configured' };
   }
 
-  if (!to) {
-    return { success: false, error: 'Recipient email is missing' };
+  let recipient = (to || '').trim();
+
+  // Defense-in-depth: Guard against placeholder / non-existent domains (e.g. admin@ar-jen.com) that trigger Mailer-Daemon bounces
+  if (!recipient || isPlaceholderEmail(recipient)) {
+    const fallback = (process.env.ADMIN_NOTIFICATION_EMAIL || process.env.EMAIL_USER || '').trim();
+    if (fallback && !isPlaceholderEmail(fallback)) {
+      console.warn(`[Email System] ⚠️ Intercepted delivery to placeholder/invalid address "${recipient}". Rerouting to verified clinic mailbox "${fallback}".`);
+      recipient = fallback;
+    } else {
+      console.warn(`[Email System] ⚠️ Delivery aborted: recipient "${recipient}" is a placeholder address and no valid fallback exists.`);
+      return { success: false, error: `Invalid placeholder recipient: ${recipient}` };
+    }
   }
 
   try {
@@ -230,16 +241,16 @@ export async function sendEmail({ to, subject, html, text }) {
 
     const info = await transporter.sendMail({
       from: `"AR-JEN Maternity Clinic" <${process.env.EMAIL_USER}>`,
-      to,
+      to: recipient,
       subject,
       html,
       text: plainText,
     });
 
-    console.log(`[Email System] Message sent successfully to ${to}. MessageId: ${info.messageId}`);
-    return { success: true, messageId: info.messageId };
+    console.log(`[Email System] Message sent successfully to ${recipient}. MessageId: ${info.messageId}`);
+    return { success: true, messageId: info.messageId, recipient };
   } catch (error) {
-    console.error(`[Email System] Failed to send email to ${to}:`, error);
+    console.error(`[Email System] Failed to send email to ${recipient}:`, error);
     return { success: false, error: error.message };
   }
 }
