@@ -2,7 +2,6 @@ import React from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import AnimatedTextRoller from "@/components/ui/animated-text-04";
 import { createClient } from "@/utils/supabase/server";
@@ -116,7 +115,6 @@ export default async function LandingPage({ searchParams }) {
                     fill
                     sizes="(max-width: 640px) 256px, (max-width: 1024px) 288px, 320px"
                     className="object-cover transition-transform duration-700 group-hover:scale-105"
-                    priority
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-60" />
                 </div>
@@ -182,24 +180,19 @@ export default async function LandingPage({ searchParams }) {
 
               {/* CTA Buttons */}
               <div className="mt-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
-                <Link href="/book">
-                  <Button
-                    size="lg"
-                    className="w-full sm:w-auto rounded-full bg-rose-500 hover:bg-rose-600 text-white px-8 py-6 text-base font-bold shadow-xl shadow-rose-200 transition-all hover:shadow-2xl hover:scale-105 active:scale-95"
-                  >
-                    <CalendarCheck className="mr-2 h-5 w-5" />
-                    Book Appointment
-                    <ChevronRight className="ml-2 h-4 w-4" />
-                  </Button>
+                <Link
+                  href="/book"
+                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-full bg-rose-500 hover:bg-rose-600 text-white px-8 py-3.5 text-base font-bold shadow-xl shadow-rose-200 transition-transform duration-200 hover:scale-[1.02] active:scale-95"
+                >
+                  <CalendarCheck className="mr-2 h-5 w-5" />
+                  Book Appointment
+                  <ChevronRight className="ml-2 h-4 w-4" />
                 </Link>
-                <Link href="/login">
-                  <Button
-                    size="lg"
-                    variant="outline"
-                    className="w-full sm:w-auto rounded-full border-rose-200 text-rose-700 bg-white/80 hover:bg-rose-50 px-7 py-6 text-base font-semibold"
-                  >
-                    Patient Portal
-                  </Button>
+                <Link
+                  href="/login"
+                  className="w-full sm:w-auto inline-flex items-center justify-center rounded-full border border-rose-200 text-rose-700 bg-white/80 hover:bg-rose-50 px-7 py-3.5 text-base font-semibold transition-transform duration-200 hover:scale-[1.02] active:scale-95"
+                >
+                  Patient Portal
                 </Link>
               </div>
             </div>
@@ -221,6 +214,7 @@ export default async function LandingPage({ searchParams }) {
                     sizes="(max-width: 640px) 256px, (max-width: 1024px) 288px, 320px"
                     className="object-cover transition-transform duration-700 group-hover:scale-105"
                     priority
+                    fetchPriority="high"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/20 via-transparent to-transparent opacity-50" />
                 </div>
@@ -431,10 +425,11 @@ export default async function LandingPage({ searchParams }) {
               </div>
 
               <div className="mt-8 flex gap-3">
-                <Link href="/book">
-                  <Button className="rounded-full bg-primary px-6 text-primary-foreground hover:bg-primary/90">
-                    Book a Consultation
-                  </Button>
+                <Link
+                  href="/book"
+                  className="inline-flex items-center justify-center rounded-full bg-primary px-6 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
+                >
+                  Book a Consultation
                 </Link>
               </div>
             </div>
@@ -494,24 +489,19 @@ export default async function LandingPage({ searchParams }) {
             Dasmariñas City is ready to welcome you.
           </p>
           <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row sm:justify-center">
-            <Link href="/book">
-              <Button
-                size="lg"
-                className="w-full rounded-full bg-white px-8 py-6 text-base font-bold text-primary shadow-lg hover:bg-white/90 sm:w-auto"
-              >
-                <CalendarCheck className="mr-2 h-5 w-5" />
-                Book Appointment
-              </Button>
+            <Link
+              href="/book"
+              className="w-full sm:w-auto inline-flex items-center justify-center rounded-full bg-white px-8 py-3.5 text-base font-bold text-primary shadow-lg hover:bg-white/90 transition-transform duration-200 hover:scale-[1.02] active:scale-95"
+            >
+              <CalendarCheck className="mr-2 h-5 w-5" />
+              Book Appointment
             </Link>
-            <a href={`tel:${settings?.clinic_contact ? settings.clinic_contact.replace(/[^0-9+]/g, '') : '+63234567890'}`}>
-              <Button
-                size="lg"
-                variant="ghost"
-                className="w-full rounded-full border border-white/30 px-8 py-6 text-base font-semibold text-primary-foreground hover:bg-white/10 sm:w-auto"
-              >
-                <PhoneCall className="mr-2 h-5 w-5" />
-                Call Us Now
-              </Button>
+            <a
+              href={`tel:${settings?.clinic_contact ? settings.clinic_contact.replace(/[^0-9+]/g, '') : '+63234567890'}`}
+              className="w-full sm:w-auto inline-flex items-center justify-center rounded-full border border-white/30 px-8 py-3.5 text-base font-semibold text-primary-foreground hover:bg-white/10 transition-colors"
+            >
+              <PhoneCall className="mr-2 h-5 w-5" />
+              Call Us Now
             </a>
           </div>
 
